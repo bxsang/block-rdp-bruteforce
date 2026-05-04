@@ -393,6 +393,9 @@ if ($RegisterTrayAutostart) {
             if (-not (Test-Path $runKey)) { New-Item -Path $runKey -Force | Out-Null }
             Set-ItemProperty -Path $runKey -Name 'BlockRdpBruteForceTray' -Value "`"$trayExePath`""
         }
+        Invoke-Step 'Launching tray app for current session' {
+            Start-Process -FilePath $trayExePath
+        }
     }
 }
 

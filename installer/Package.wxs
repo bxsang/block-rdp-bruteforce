@@ -211,9 +211,38 @@
       </Feature>
     </Feature>
 
+    <!--
+      Exit-dialog "Launch tray" checkbox. WIXUI_EXITDIALOGOPTIONALCHECKBOX=1
+      pre-checks it; the Publish wires the Finish button to WixShellExec so
+      the tray starts immediately after the wizard closes.
+      Conditioned on NOT REMOVE so it fires on fresh install and upgrades but
+      not on uninstall.
+    -->
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT" Value="Launch BlockRdpBruteForce Tray" />
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOX" Value="1" />
+
+    <!--
+      WixShellExecTarget is read as a formatted string by WixShellExec at runtime,
+      so [INSTALLFOLDER] is resolved correctly by the MSI engine. WIX1077 is a
+      false-positive static analysis warning; the value is intentionally formatted.
+    -->
+    <Property Id="WixShellExecTarget" Value="[INSTALLFOLDER]BlockRdpBruteForce.Tray.exe" />
+
+    <CustomAction Id="LaunchTray"
+                  BinaryRef="Wix4UtilCA_X64"
+                  DllEntry="WixShellExec"
+                  Impersonate="yes"
+                  Return="ignore" />
+
     <!-- UI -->
 
     <ui:WixUI Id="WixUI_FeatureTree" InstallDirectory="INSTALLFOLDER" />
+
+    <UI>
+      <Publish Dialog="ExitDialog" Control="Finish" Event="DoAction" Value="LaunchTray"
+               Condition="WIXUI_EXITDIALOGOPTIONALCHECKBOX = 1 AND NOT REMOVE AND &amp;TrayFeature = 3" />
+    </UI>
+
     <WixVariable Id="WixUILicenseRtf" Value="License.rtf" />
 
   </Package>
