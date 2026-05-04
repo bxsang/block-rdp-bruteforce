@@ -3,15 +3,14 @@
      xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui"
      xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
 
-  <?define ProductName    = "BlockRdpBruteForce" ?>
-  <?define Manufacturer   = "BlockRdpBruteForce" ?>
-  <?define ProductVersion = "1.0.0.0" ?>
-  <?define ServiceName    = "BlockRdpBruteForce" ?>
-  <?define UpgradeCode    = "b3e2f1a0-7c4d-4b5a-9e1f-3a2c4d5e6f70" ?>
+  <?define ProductName  = "BlockRdpBruteForce" ?>
+  <?define Manufacturer = "BlockRdpBruteForce" ?>
+  <?define ServiceName  = "BlockRdpBruteForce" ?>
+  <?define UpgradeCode  = "b3e2f1a0-7c4d-4b5a-9e1f-3a2c4d5e6f70" ?>
 
   <Package Name="$(ProductName)"
            Manufacturer="$(Manufacturer)"
-           Version="$(ProductVersion)"
+           Version="!(bind.FileVersion.ServiceExeFile)"
            UpgradeCode="$(UpgradeCode)"
            InstallerVersion="500"
            Compressed="yes"
