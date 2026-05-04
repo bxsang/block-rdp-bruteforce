@@ -1,0 +1,36 @@
+<Project Sdk="WixToolset.Sdk/7.0.0">
+
+  <PropertyGroup>
+    <OutputName>BlockRdpBruteForce</OutputName>
+    <OutputType>Package</OutputType>
+    <InstallerPlatform>x64</InstallerPlatform>
+
+    <!--
+      WiX v7 requires explicit acceptance of the Open Source Maintenance Fee
+      EULA (OSMF v1.1). The fee only kicks in above US$10,000/year revenue
+      attributable to projects that use WiX; below that threshold it's free.
+      See https://docs.firegiant.com/wix/osmf/ for the EULA text.
+    -->
+    <AcceptEula>wix7</AcceptEula>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <RepoRoot>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\'))</RepoRoot>
+    <ServicePublishDir Condition="'$(ServicePublishDir)' == ''">$(RepoRoot)src\BlockRdpBruteForce\bin\$(Configuration)\net10.0\win-x64\publish\</ServicePublishDir>
+    <TrayPublishDir    Condition="'$(TrayPublishDir)' == ''">$(RepoRoot)src\BlockRdpBruteForce.Tray\bin\$(Configuration)\net10.0-windows\win-x64\publish\</TrayPublishDir>
+    <DefineConstants>ServicePublishDir=$(ServicePublishDir);TrayPublishDir=$(TrayPublishDir)</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="WixToolset.UI.wixext"   Version="7.0.0" />
+    <PackageReference Include="WixToolset.Util.wixext" Version="7.0.0" />
+  </ItemGroup>
+
+  <Target Name="ValidatePublishOutput" BeforeTargets="BeforeBuild">
+    <Error Condition="!Exists('$(ServicePublishDir)BlockRdpBruteForce.exe')"
+           Text="Service publish output not found at $(ServicePublishDir)BlockRdpBruteForce.exe. Run installer\build-installer.ps1 or 'dotnet publish src\BlockRdpBruteForce -c Release -r win-x64 --self-contained -p:PublishSingleFile=true' first." />
+    <Error Condition="!Exists('$(TrayPublishDir)BlockRdpBruteForce.Tray.exe')"
+           Text="Tray publish output not found at $(TrayPublishDir)BlockRdpBruteForce.Tray.exe. Run installer\build-installer.ps1 first." />
+  </Target>
+
+</Project>

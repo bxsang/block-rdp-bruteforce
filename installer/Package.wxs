@@ -1,0 +1,220 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+
+  <?define ProductName    = "BlockRdpBruteForce" ?>
+  <?define Manufacturer   = "BlockRdpBruteForce" ?>
+  <?define ProductVersion = "1.0.0.0" ?>
+  <?define ServiceName    = "BlockRdpBruteForce" ?>
+  <?define UpgradeCode    = "b3e2f1a0-7c4d-4b5a-9e1f-3a2c4d5e6f70" ?>
+
+  <Package Name="$(ProductName)"
+           Manufacturer="$(Manufacturer)"
+           Version="$(ProductVersion)"
+           UpgradeCode="$(UpgradeCode)"
+           InstallerVersion="500"
+           Compressed="yes"
+           Scope="perMachine">
+
+    <SummaryInformation Description="$(ProductName) installer" />
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version of [ProductName] is already installed." />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <Icon Id="AppIcon.exe" SourceFile="$(ServicePublishDir)BlockRdpBruteForce.exe" />
+    <Property Id="ARPPRODUCTICON" Value="AppIcon.exe" />
+    <Property Id="ARPNOMODIFY"    Value="1" />
+    <Property Id="ARPHELPLINK"    Value="https://github.com/" />
+
+    <!--
+      Default ENABLEAUDITPOLICY=1: the service is useless without "Audit Logon"
+      failures enabled, so the MSI flips it on by default. Pass
+      ENABLEAUDITPOLICY=0 on msiexec to skip.
+    -->
+    <Property Id="ENABLEAUDITPOLICY" Value="1" Secure="yes" />
+
+    <!-- Directories -->
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="$(ProductName)" />
+    </StandardDirectory>
+
+    <StandardDirectory Id="CommonAppDataFolder">
+      <Directory Id="STATEFOLDER" Name="$(ProductName)">
+        <Directory Id="LOGSFOLDER" Name="logs" />
+      </Directory>
+    </StandardDirectory>
+
+    <!-- Service component -->
+
+    <ComponentGroup Id="ServiceComponents" Directory="INSTALLFOLDER">
+      <Component Id="ServiceExe">
+        <File Id="ServiceExeFile"
+              Source="$(ServicePublishDir)BlockRdpBruteForce.exe"
+              KeyPath="yes" />
+
+        <ServiceInstall Id="InstallService"
+                        Type="ownProcess"
+                        Name="$(ServiceName)"
+                        DisplayName="$(ProductName)"
+                        Description="Real-time RDP brute-force detection and blocking."
+                        Start="auto"
+                        ErrorControl="normal"
+                        Account="LocalSystem"
+                        Vital="yes">
+          <util:ServiceConfig FirstFailureActionType="restart"
+                              SecondFailureActionType="restart"
+                              ThirdFailureActionType="restart"
+                              ResetPeriodInDays="1"
+                              RestartServiceDelayInSeconds="30" />
+        </ServiceInstall>
+
+        <ServiceControl Id="ControlService"
+                        Name="$(ServiceName)"
+                        Start="install"
+                        Stop="both"
+                        Remove="uninstall"
+                        Wait="yes" />
+
+        <util:EventSource Log="Application"
+                          Name="$(ServiceName)"
+                          EventMessageFile="[INSTALLFOLDER]BlockRdpBruteForce.exe" />
+      </Component>
+
+      <!--
+        appsettings.json: NeverOverwrite preserves admin edits across upgrades.
+        Removed only on full uninstall (component reference count -> 0).
+      -->
+      <Component Id="AppSettings" NeverOverwrite="yes">
+        <File Id="AppSettingsJson"
+              Source="$(ServicePublishDir)appsettings.json"
+              KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+
+    <!-- ProgramData state folder + ACL -->
+
+    <ComponentGroup Id="StateFolderComponents">
+      <Component Id="StateFolder" Directory="STATEFOLDER"
+                 Guid="d4f8b1c2-9e3a-4f7d-8a5b-1c2d3e4f5a6b">
+        <CreateFolder>
+          <util:PermissionEx User="SYSTEM"         GenericAll="yes" />
+          <util:PermissionEx User="Administrators" GenericAll="yes" />
+          <util:PermissionEx User="Users"          GenericRead="yes" GenericExecute="yes" />
+        </CreateFolder>
+        <RegistryValue Root="HKLM"
+                       Key="Software\$(ProductName)"
+                       Name="StateFolder"
+                       Type="string"
+                       Value="[STATEFOLDER]"
+                       KeyPath="yes" />
+      </Component>
+      <Component Id="LogsFolder" Directory="LOGSFOLDER"
+                 Guid="a1b2c3d4-e5f6-4789-90ab-cdef12345678">
+        <CreateFolder />
+        <RegistryValue Root="HKLM"
+                       Key="Software\$(ProductName)"
+                       Name="LogsFolder"
+                       Type="string"
+                       Value="[LOGSFOLDER]"
+                       KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+
+    <!-- Tray -->
+
+    <ComponentGroup Id="TrayComponents" Directory="INSTALLFOLDER">
+      <Component Id="TrayExe">
+        <File Id="TrayExeFile"
+              Source="$(TrayPublishDir)BlockRdpBruteForce.Tray.exe"
+              KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+
+    <!--
+      Tray autostart: uses HKLM Run (per-machine) so the tray starts for every
+      interactive user that logs on. The original Install.ps1 uses HKCU Run,
+      which only covers the installing user; HKLM is the right shape for an
+      MSI that may be deployed by Group Policy or Intune.
+    -->
+    <ComponentGroup Id="TrayAutostartComponents" Directory="INSTALLFOLDER">
+      <Component Id="TrayAutostartRunKey"
+                 Guid="2f3e4d5c-6b7a-4988-9c1d-0e1f2a3b4c5d">
+        <RegistryKey Root="HKLM" Key="Software\Microsoft\Windows\CurrentVersion\Run">
+          <RegistryValue Name="BlockRdpBruteForceTray"
+                         Type="string"
+                         Value="&quot;[INSTALLFOLDER]BlockRdpBruteForce.Tray.exe&quot;"
+                         KeyPath="yes" />
+        </RegistryKey>
+      </Component>
+    </ComponentGroup>
+
+    <!-- Custom actions -->
+
+    <!--
+      Audit policy: enable "Audit Logon" failures so the service's 4625
+      subscription receives events. Runs deferred + non-impersonated (SYSTEM)
+      because auditpol /set requires SeSecurityPrivilege.
+    -->
+    <CustomAction Id="EnableAuditPolicy"
+                  Directory="INSTALLFOLDER"
+                  ExeCommand="auditpol.exe /set /subcategory:&quot;Logon&quot; /failure:enable"
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="ignore" />
+
+    <!--
+      Firewall cleanup on uninstall. The service creates BlockRDPBruteForce-v4*
+      / -v6* rules at runtime, so MSI doesn't know about them and won't reap
+      them via component-tracking. Wipe by display-name prefix on uninstall.
+    -->
+    <CustomAction Id="RemoveFirewallRules"
+                  Directory="INSTALLFOLDER"
+                  ExeCommand="powershell.exe -NoProfile -ExecutionPolicy Bypass -Command &quot;Get-NetFirewallRule -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -like 'BlockRDPBruteForce-*' } | Remove-NetFirewallRule&quot;"
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="ignore" />
+
+    <InstallExecuteSequence>
+      <Custom Action="EnableAuditPolicy"
+              After="InstallServices"
+              Condition="ENABLEAUDITPOLICY=&quot;1&quot; AND NOT Installed AND NOT REMOVE" />
+      <Custom Action="RemoveFirewallRules"
+              Before="StopServices"
+              Condition="REMOVE=&quot;ALL&quot;" />
+    </InstallExecuteSequence>
+
+    <!-- Features -->
+
+    <Feature Id="ServiceFeature"
+             Title="$(ProductName) service"
+             Description="Windows service that blocks failed RDP logins."
+             Level="1"
+             AllowAbsent="no"
+             ConfigurableDirectory="INSTALLFOLDER">
+      <ComponentGroupRef Id="ServiceComponents" />
+      <ComponentGroupRef Id="StateFolderComponents" />
+    </Feature>
+
+    <Feature Id="TrayFeature"
+             Title="Tray app"
+             Description="System-tray app showing service status and blocked IPs."
+             Level="1">
+      <ComponentGroupRef Id="TrayComponents" />
+
+      <Feature Id="TrayAutostart"
+               Title="Start tray at logon"
+               Description="Run the tray for every user at sign-in (HKLM Run key)."
+               Level="1">
+        <ComponentGroupRef Id="TrayAutostartComponents" />
+      </Feature>
+    </Feature>
+
+    <!-- UI -->
+
+    <ui:WixUI Id="WixUI_FeatureTree" InstallDirectory="INSTALLFOLDER" />
+    <WixVariable Id="WixUILicenseRtf" Value="License.rtf" />
+
+  </Package>
+</Wix>

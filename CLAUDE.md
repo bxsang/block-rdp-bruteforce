@@ -32,6 +32,10 @@ dotnet publish src\BlockRdpBruteForce.Tray -c Release -r win-x64 --self-containe
 # Build + install + start the service (elevated PowerShell)
 .\install\Install.ps1 -Build -EnableAuditPolicy -RegisterTrayAutostart
 
+# Build the MSI installer (WiX 7) -- outputs installer\bin\Release\BlockRdpBruteForce.msi
+.\installer\build-installer.ps1
+msiexec /i installer\bin\Release\BlockRdpBruteForce.msi
+
 # Iterate without reinstalling: rebuild, then bounce the service
 dotnet publish src\BlockRdpBruteForce -c Release -r win-x64 --self-contained -p:PublishSingleFile=true
 Stop-Service BlockRdpBruteForce
@@ -147,6 +151,28 @@ suppresses CA1416 only inside `RunService`.
 `appsettings.json`, keep this invariant in mind — a misconfigured default
 could ban a fresh installer's management subnet on first failed-password
 typo.
+
+### Two installer paths
+
+`install\Install.ps1` (dev/iteration) and `installer\` (WiX 7 MSI, production)
+both deploy the same binaries. Functional differences worth knowing when
+touching either:
+
+- **Tray autostart**: `Install.ps1` writes HKCU `Run` for the installing user
+  only. The MSI writes HKLM `Run` (covers all users) as an opt-in feature.
+- **Self-lockout guard**: enforced by `Install.ps1`, **not** by the MSI. If you
+  ever change the default `appsettings.json` shipped with the MSI to unsafe
+  values, the MSI will install them silently.
+- **State on uninstall**: `Uninstall.ps1` removes `%ProgramData%\BlockRdpBruteForce\`
+  by default; the MSI preserves it (matching the Windows convention that an
+  installer doesn't manage runtime-created data).
+- **Firewall rule cleanup on uninstall**: both sweep `BlockRDPBruteForce-*`
+  rules (PS via `Remove-NetFirewallRule`, MSI via a deferred CA running
+  PowerShell with the same query).
+
+When changing service installation behavior (recovery actions, ACLs, event-log
+source, audit policy), update **both** `install\Install.ps1` and
+`installer\Package.wxs` so the two paths don't diverge.
 
 ## Gotchas worth knowing
 

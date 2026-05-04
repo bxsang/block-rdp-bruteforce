@@ -31,6 +31,37 @@ Built as an open-source alternative to RDPGuard.
 
 ## Install
 
+Two options: an MSI for production deployment, and a PowerShell script for
+in-tree iteration.
+
+### Option 1: MSI installer (recommended)
+
+Build the MSI once, then install from any elevated context (or push it via
+Group Policy / Intune):
+
+```powershell
+.\installer\build-installer.ps1
+msiexec /i installer\bin\Release\BlockRdpBruteForce.msi
+```
+
+The installer UI offers three features: service (required), tray app, and
+"start tray at logon" (HKLM `Run`, covers all users). For unattended installs:
+
+```powershell
+msiexec /i installer\bin\Release\BlockRdpBruteForce.msi /qn
+msiexec /i installer\bin\Release\BlockRdpBruteForce.msi /qn ENABLEAUDITPOLICY=0
+```
+
+| Property | Default | Purpose |
+|---|---|---|
+| `ENABLEAUDITPOLICY` | `1` | Run `auditpol /set` to enable Logon-failure auditing |
+
+Major upgrades reuse the existing service and preserve `%ProgramData%\BlockRdpBruteForce\`.
+Building the MSI requires the WiX 7 SDK, which is restored from NuGet on first
+build (`AcceptEula=wix7` is set in the wixproj — see [WiX OSMF](https://docs.firegiant.com/wix/osmf/)).
+
+### Option 2: PowerShell installer (dev workflow)
+
 From an elevated PowerShell prompt:
 
 ```powershell
@@ -50,7 +81,7 @@ Common flags:
 | `-DryRun` | Print actions without making changes |
 | `-Force` | Bypass the self-lockout guard (see below) |
 
-The installer is safe to re-run: it stops the existing service, redeploys
+The script is safe to re-run: it stops the existing service, redeploys
 binaries, and restarts.
 
 ### Self-lockout guard
@@ -58,7 +89,8 @@ binaries, and restarts.
 `Install.ps1` refuses to install if `Whitelist` is empty **and**
 `FailureThreshold < 3` — a single mistyped password could otherwise ban your
 management subnet. Add at least one whitelist entry, raise the threshold, or
-pass `-Force` to override.
+pass `-Force` to override. **The MSI does not enforce this guard**; ship the
+MSI only with safe defaults baked into the cabbed `appsettings.json`.
 
 ## Configuration
 
@@ -163,11 +195,27 @@ src\
 test\
   BlockRdpBruteForce.Tests\    # xUnit unit tests
 install\
-  Install.ps1
+  Install.ps1                  # PS-based installer (dev workflow)
   Uninstall.ps1
+installer\
+  BlockRdpBruteForce.Installer.wixproj   # WiX 7 MSI project
+  Package.wxs                            # MSI definition
+  build-installer.ps1                    # publish + build wrapper
 ```
 
 ## Uninstall
+
+If installed via MSI: remove from **Settings → Apps**, or:
+
+```powershell
+msiexec /x installer\bin\Release\BlockRdpBruteForce.msi /qn
+```
+
+The MSI removes the service, install directory, event-log source, tray
+autostart, and the runtime-created `BlockRDPBruteForce-*` firewall rules.
+State under `%ProgramData%\BlockRdpBruteForce\` is preserved.
+
+If installed via `Install.ps1`:
 
 ```powershell
 cd install
@@ -175,8 +223,8 @@ cd install
 ```
 
 Removes the service, the install directory, the event-log source, and the tray
-autostart entry. State under `%ProgramData%\BlockRdpBruteForce\` is preserved by
-default — pass `-RemoveState` to delete it.
+autostart entry. State under `%ProgramData%\BlockRdpBruteForce\` is **removed
+by default** — pass `-KeepState` to preserve it for a later reinstall.
 
 ## Troubleshooting
 
