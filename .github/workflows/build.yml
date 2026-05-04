@@ -1,0 +1,95 @@
+name: Build MSI
+
+on:
+  push:
+    branches: [ "main" ]
+    tags: [ "v*" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  test:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Run tests
+        run: dotnet test test/BlockRdpBruteForce.Tests/BlockRdpBruteForce.Tests.csproj --verbosity normal
+
+  build-msi:
+    needs: test
+    runs-on: windows-latest
+
+    strategy:
+      matrix:
+        include:
+          - variant: self-contained
+            publish_flag: --self-contained
+          - variant: framework-dependent
+            publish_flag: --no-self-contained
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Publish service (${{ matrix.variant }})
+        run: dotnet publish src/BlockRdpBruteForce -c Release -r win-x64 ${{ matrix.publish_flag }} -p:PublishSingleFile=true
+
+      - name: Publish tray (${{ matrix.variant }})
+        run: dotnet publish src/BlockRdpBruteForce.Tray -c Release -r win-x64 ${{ matrix.publish_flag }} -p:PublishSingleFile=true
+
+      - name: Build MSI (${{ matrix.variant }})
+        run: dotnet build installer/BlockRdpBruteForce.Installer.wixproj -c Release
+
+      - name: Upload MSI
+        uses: actions/upload-artifact@v4
+        with:
+          name: BlockRdpBruteForce-${{ matrix.variant }}
+          path: installer/bin/Release/BlockRdpBruteForce.msi
+
+  release:
+    needs: build-msi
+    runs-on: windows-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download self-contained MSI
+        uses: actions/download-artifact@v4
+        with:
+          name: BlockRdpBruteForce-self-contained
+          path: release-assets/self-contained
+
+      - name: Download framework-dependent MSI
+        uses: actions/download-artifact@v4
+        with:
+          name: BlockRdpBruteForce-framework-dependent
+          path: release-assets/framework-dependent
+
+      - name: Rename MSIs for release
+        shell: pwsh
+        run: |
+          Rename-Item release-assets/self-contained/BlockRdpBruteForce.msi `
+            BlockRdpBruteForce-self-contained.msi
+          Rename-Item release-assets/framework-dependent/BlockRdpBruteForce.msi `
+            BlockRdpBruteForce-framework-dependent.msi
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release-assets/self-contained/BlockRdpBruteForce-self-contained.msi
+            release-assets/framework-dependent/BlockRdpBruteForce-framework-dependent.msi
