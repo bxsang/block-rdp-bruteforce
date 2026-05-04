@@ -1,5 +1,7 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
+using System.Security.Principal;
 using BlockRdpBruteForce.Configuration;
 using BlockRdpBruteForce.Tray.Forms;
 using Microsoft.Extensions.Configuration;
@@ -21,6 +23,7 @@ public sealed class TrayContext : ApplicationContext
     private readonly ToolStripMenuItem _resumeItem;
     private readonly ToolStripMenuItem _settingsItem;
     private readonly ToolStripMenuItem _openLogsItem;
+    private readonly ToolStripMenuItem _restartAsAdminItem;
     private readonly ToolStripMenuItem _exitItem;
     private BlockedIpsForm? _openForm;
     private SettingsForm? _settingsForm;
@@ -36,6 +39,10 @@ public sealed class TrayContext : ApplicationContext
         _resumeItem = new ToolStripMenuItem("Resume", null, OnResume) { Visible = false };
         _settingsItem = new ToolStripMenuItem("Settings...", null, OnSettings);
         _openLogsItem = new ToolStripMenuItem("Open log folder", null, OnOpenLogs);
+        _restartAsAdminItem = new ToolStripMenuItem("Restart as Administrator", null, OnRestartAsAdmin)
+        {
+            Visible = !IsRunningAsAdmin()
+        };
         _exitItem = new ToolStripMenuItem("Exit tray", null, (_, _) => ExitThread());
 
         var menu = new ContextMenuStrip();
@@ -46,6 +53,7 @@ public sealed class TrayContext : ApplicationContext
         menu.Items.Add(_settingsItem);
         menu.Items.Add(_openLogsItem);
         menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add(_restartAsAdminItem);
         menu.Items.Add(_exitItem);
 
         _icon = new NotifyIcon
@@ -183,6 +191,40 @@ public sealed class TrayContext : ApplicationContext
         _settingsForm.Show();
         _settingsForm.Activate();
     }
+
+    private void OnRestartAsAdmin(object? sender, EventArgs e)
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo(Application.ExecutablePath)
+            {
+                UseShellExecute = true,
+                Verb = "runas"
+            });
+            ExitThread();
+        }
+        catch (OperationCanceledException) { } // user cancelled UAC
+        catch (Exception ex)
+        {
+            MessageBox.Show(ex.Message, "Could not restart as Administrator",
+                MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+    }
+
+    private static bool IsRunningAsAdmin()
+    {
+        // CheckTokenMembership(null) uses the process token and checks that the
+        // Administrators SID is both present AND enabled — correctly returns false
+        // for a non-elevated admin process (UAC filtered token).
+        var sid = new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null);
+        var sidBytes = new byte[sid.BinaryLength];
+        sid.GetBinaryForm(sidBytes, 0);
+        return CheckTokenMembership(IntPtr.Zero, sidBytes, out var isMember) && isMember;
+    }
+
+    [DllImport("advapi32.dll", SetLastError = true)]
+    private static extern bool CheckTokenMembership(
+        IntPtr tokenHandle, byte[] sidToCheck, out bool isMember);
 
     private void OnOpenLogs(object? sender, EventArgs e)
     {

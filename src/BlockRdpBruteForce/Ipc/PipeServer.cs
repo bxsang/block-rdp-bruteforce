@@ -1,5 +1,6 @@
 using System.IO.Pipes;
 using System.Net;
+using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using System.Security.AccessControl;
 using System.Security.Principal;
@@ -243,9 +244,14 @@ public sealed class PipeServer : BackgroundService
             var isAdmin = false;
             pipe.RunAsClient(() =>
             {
-                using var identity = WindowsIdentity.GetCurrent(TokenAccessLevels.Query);
-                var principal = new WindowsPrincipal(identity);
-                isAdmin = principal.IsInRole(WindowsBuiltInRole.Administrator);
+                // CheckTokenMembership with a null handle uses the thread's current
+                // impersonation token (set by RunAsClient). It checks that the
+                // Administrators SID is both present AND enabled, so non-elevated admin
+                // processes (UAC filtered token) correctly return false.
+                // We avoid WindowsPrincipal/ClaimsPrincipal entirely because constructing
+                // WindowsPrincipal loads System.Security.Claims, which fails inside
+                // RunAsClient on Windows Server 2019 with a single-file publish.
+                isAdmin = NativeMethods.IsAdminToken(IntPtr.Zero);
             });
             if (!isAdmin)
             {
@@ -258,6 +264,28 @@ public sealed class PipeServer : BackgroundService
         {
             _log.LogWarning(ex, "Admin check failed; rejecting request");
             return false;
+        }
+    }
+
+    private static class NativeMethods
+    {
+        private static readonly byte[] AdminSidBytes = GetAdminSidBytes();
+
+        private static byte[] GetAdminSidBytes()
+        {
+            var sid = new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null);
+            var bytes = new byte[sid.BinaryLength];
+            sid.GetBinaryForm(bytes, 0);
+            return bytes;
+        }
+
+        [DllImport("advapi32.dll", SetLastError = true)]
+        private static extern bool CheckTokenMembership(
+            IntPtr tokenHandle, byte[] sidToCheck, out bool isMember);
+
+        internal static bool IsAdminToken(IntPtr token)
+        {
+            return CheckTokenMembership(token, AdminSidBytes, out var isMember) && isMember;
         }
     }
 
