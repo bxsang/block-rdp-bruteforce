@@ -1,7 +1,17 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
-    <ProjectReference Include="..\BlockRdpBruteForce\BlockRdpBruteForce.csproj" />
+    <!--
+      The service project has OutputType=Exe (Worker SDK), but the tray only
+      consumes its IPC types. UndefineProperties strips the inherited RID and
+      SelfContained from the P2P build, which avoids NETSDK1151 when publishing
+      the tray framework-dependent (the service would otherwise default to
+      SelfContained=true under -r and a non-self-contained tray cannot reference
+      a self-contained exe).
+    -->
+    <ProjectReference Include="..\BlockRdpBruteForce\BlockRdpBruteForce.csproj">
+      <UndefineProperties>RuntimeIdentifier;SelfContained;PublishSingleFile</UndefineProperties>
+    </ProjectReference>
   </ItemGroup>
 
   <PropertyGroup>
