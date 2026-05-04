@@ -1,0 +1,38 @@
+# Build output
+bin/
+obj/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# IDE
+.vs/
+.vscode/
+.idea/
+*.swp
+
+# Publish output
+publish/
+install/publish/
+artifacts/
+*.zip
+
+# State / runtime files (should never be checked in)
+state.json
+*.log
+logs/
+
+# OS
+Thumbs.db
+.DS_Store
+
+# NuGet
+*.nupkg
+packages/
+
+# Local handoff notes
+TASKS.md
+
+# Local Claude Code settings
+.claude/settings.local.json

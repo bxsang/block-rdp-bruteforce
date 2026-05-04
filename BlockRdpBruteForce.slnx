@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/BlockRdpBruteForce.Tray/BlockRdpBruteForce.Tray.csproj" />
+    <Project Path="src/BlockRdpBruteForce/BlockRdpBruteForce.csproj" />
+  </Folder>
+  <Folder Name="/test/">
+    <Project Path="test/BlockRdpBruteForce.Tests/BlockRdpBruteForce.Tests.csproj" />
+  </Folder>
+</Solution>
