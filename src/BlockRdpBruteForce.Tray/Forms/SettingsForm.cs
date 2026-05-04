@@ -90,23 +90,27 @@ public sealed class SettingsForm : Form
         whitelistLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
         _whitelistBox = new ListBox { Dock = DockStyle.Fill };
-        _addWhitelist = new Button { Text = "Add…", Dock = DockStyle.Top, Height = 28 };
-        _removeWhitelist = new Button { Text = "Remove", Dock = DockStyle.Top, Height = 28, Margin = new Padding(0, 4, 0, 0) };
-        var sideButtons = new FlowLayoutPanel
+        _addWhitelist = new Button { Text = "Add…", Dock = DockStyle.Fill, Height = 28 };
+        _removeWhitelist = new Button { Text = "Remove", Dock = DockStyle.Fill, Height = 28 };
+        var sideButtons = new TableLayoutPanel
         {
-            Dock = DockStyle.Fill,
-            FlowDirection = FlowDirection.TopDown,
-            WrapContents = false,
+            Dock = DockStyle.Top,
+            ColumnCount = 1,
+            RowCount = 2,
+            AutoSize = true,
         };
-        sideButtons.Controls.Add(_addWhitelist);
-        sideButtons.Controls.Add(_removeWhitelist);
+        sideButtons.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        sideButtons.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        sideButtons.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        sideButtons.Controls.Add(_addWhitelist, 0, 0);
+        sideButtons.Controls.Add(_removeWhitelist, 0, 1);
 
         whitelistLayout.Controls.Add(_whitelistBox, 0, 0);
         whitelistLayout.Controls.Add(sideButtons, 1, 0);
         whitelistLayout.SetRowSpan(_whitelistBox, 2);
         whitelistGroup.Controls.Add(whitelistLayout);
 
-        layout.Controls.Add(whitelistGroup, 0, 5);
+        layout.Controls.Add(whitelistGroup, 0, 6);
         layout.SetColumnSpan(whitelistGroup, 2);
 
         _addWhitelist.Click += (_, _) => OnAddWhitelist();
