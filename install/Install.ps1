@@ -32,6 +32,12 @@
 .PARAMETER Runtime
     .NET RID when -Build is set. Default win-x64.
 
+.PARAMETER FrameworkDependent
+    Publish framework-dependent instead of self-contained when -Build is set.
+    Produces much smaller binaries but requires the .NET 10 Desktop Runtime
+    on the target machine (Desktop because the tray uses WinForms). Without
+    the runtime the service won't start.
+
 .PARAMETER EnableAuditPolicy
     If "Audit Logon" failures are not enabled, enable them automatically.
     Without this switch the installer warns and continues; the service
@@ -62,6 +68,7 @@ param(
     [switch] $Build,
     [string] $Configuration = 'Release',
     [string] $Runtime = 'win-x64',
+    [switch] $FrameworkDependent,
     [switch] $EnableAuditPolicy,
     [switch] $RegisterTrayAutostart,
     [switch] $DryRun,
@@ -146,17 +153,19 @@ if ($Build) {
     $dotnet = Get-Command dotnet -ErrorAction SilentlyContinue
     if (-not $dotnet) { throw "dotnet SDK not found on PATH; cannot -Build." }
 
+    $selfContainedArg = if ($FrameworkDependent) { '--no-self-contained' } else { '--self-contained' }
+
     Invoke-Step "Publishing service to $PublishRoot\BlockRdpBruteForce" {
         $svcPub = Join-Path $PublishRoot 'BlockRdpBruteForce'
         & dotnet publish (Join-Path $RepoRoot 'src\BlockRdpBruteForce') `
-            -c $Configuration -r $Runtime --self-contained `
+            -c $Configuration -r $Runtime $selfContainedArg `
             -p:PublishSingleFile=true -o $svcPub | Out-Host
         if ($LASTEXITCODE -ne 0) { throw "dotnet publish (service) failed." }
     }
     Invoke-Step "Publishing tray to $PublishRoot\BlockRdpBruteForce.Tray" {
         $trayPub = Join-Path $PublishRoot 'BlockRdpBruteForce.Tray'
         & dotnet publish (Join-Path $RepoRoot 'src\BlockRdpBruteForce.Tray') `
-            -c $Configuration -r $Runtime --self-contained `
+            -c $Configuration -r $Runtime $selfContainedArg `
             -p:PublishSingleFile=true -o $trayPub | Out-Host
         if ($LASTEXITCODE -ne 0) { throw "dotnet publish (tray) failed." }
     }

@@ -26,8 +26,10 @@ Built as an open-source alternative to RDPGuard.
 - Windows 10 / 11 or Windows Server 2016+
 - Administrator rights to install (the service runs as `LocalSystem`)
 - "Audit Logon" failures enabled (the installer can enable this for you)
-- .NET 10 SDK — only required if building from source. The published binaries are
-  self-contained and have no runtime dependency.
+- .NET 10 SDK — only required if building from source. The default publish is
+  self-contained and has no runtime dependency; pass `-FrameworkDependent` to
+  either installer for a much smaller payload that needs the .NET 10 Desktop
+  Runtime on the target box.
 
 ## Install
 

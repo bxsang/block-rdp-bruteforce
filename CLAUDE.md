@@ -25,7 +25,10 @@ dotnet test test\BlockRdpBruteForce.Tests
 dotnet test test\BlockRdpBruteForce.Tests --filter "FullyQualifiedName~FailureTrackerTests"
 dotnet test test\BlockRdpBruteForce.Tests --filter "FullyQualifiedName~EventXmlParserTests.Parses_Ipv6_Address"
 
-# Publish self-contained single-file binaries (what Install.ps1 ships)
+# Publish self-contained single-file binaries (what Install.ps1 ships by default).
+# Both Install.ps1 and build-installer.ps1 also accept -FrameworkDependent, which
+# swaps --self-contained for --no-self-contained; the target box must then have
+# the .NET 10 Desktop Runtime installed.
 dotnet publish src\BlockRdpBruteForce      -c Release -r win-x64 --self-contained -p:PublishSingleFile=true
 dotnet publish src\BlockRdpBruteForce.Tray -c Release -r win-x64 --self-contained -p:PublishSingleFile=true
 

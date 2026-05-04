@@ -5,9 +5,14 @@
 
 .DESCRIPTION
     Wraps the three commands that produce installer\bin\<Configuration>\BlockRdpBruteForce.msi:
-      1. dotnet publish src\BlockRdpBruteForce       (single-file, self-contained)
-      2. dotnet publish src\BlockRdpBruteForce.Tray   (single-file, self-contained)
+      1. dotnet publish src\BlockRdpBruteForce       (single-file)
+      2. dotnet publish src\BlockRdpBruteForce.Tray   (single-file)
       3. dotnet build installer\BlockRdpBruteForce.Installer.wixproj
+
+    By default the publish is self-contained, which makes the MSI ~70-90 MB but
+    requires no .NET runtime on the target box. Pass -FrameworkDependent for a
+    much smaller MSI (a few MB) that requires the .NET 10 Desktop Runtime to
+    be pre-installed on the target.
 
     No admin rights required to BUILD the MSI. Installing it does require admin.
 
@@ -19,12 +24,18 @@
 
 .PARAMETER SkipPublish
     Skip the dotnet publish steps and build straight from existing publish output.
+
+.PARAMETER FrameworkDependent
+    Publish framework-dependent instead of self-contained. Target machine must
+    have the .NET 10 Desktop Runtime installed (Desktop because the tray uses
+    WinForms). Trades MSI size for a runtime prerequisite.
 #>
 [CmdletBinding()]
 param(
-    [string] $Configuration = 'Release',
-    [string] $Runtime       = 'win-x64',
-    [switch] $SkipPublish
+    [string] $Configuration      = 'Release',
+    [string] $Runtime            = 'win-x64',
+    [switch] $SkipPublish,
+    [switch] $FrameworkDependent
 )
 
 $ErrorActionPreference = 'Stop'
@@ -41,16 +52,18 @@ function Invoke-Native {
 }
 
 if (-not $SkipPublish) {
+    $selfContainedArg = if ($FrameworkDependent) { '--no-self-contained' } else { '--self-contained' }
+
     Invoke-Native dotnet @(
         'publish', (Join-Path $repoRoot 'src\BlockRdpBruteForce'),
         '-c', $Configuration, '-r', $Runtime,
-        '--self-contained', '-p:PublishSingleFile=true'
+        $selfContainedArg, '-p:PublishSingleFile=true'
     ) 'Publishing service'
 
     Invoke-Native dotnet @(
         'publish', (Join-Path $repoRoot 'src\BlockRdpBruteForce.Tray'),
         '-c', $Configuration, '-r', $Runtime,
-        '--self-contained', '-p:PublishSingleFile=true'
+        $selfContainedArg, '-p:PublishSingleFile=true'
     ) 'Publishing tray'
 }
 
