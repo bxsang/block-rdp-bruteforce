@@ -138,6 +138,21 @@ Settings live under the `BlockRdp:` section (see `AppOptions.SectionName`).
 When adding a new option, add it to `Configuration\AppOptions.cs`, the shipped
 `src\BlockRdpBruteForce\appsettings.json`, and the README config table.
 
+Six settings are also writable at runtime through the pipe — `FailureThreshold`,
+`SlidingWindowMinutes`, `BlockDurationMinutes`, `Whitelist`, `FirewallScope`,
+`EvaluateNlaFallback`. The verbs are `config-get`, `config-set`,
+`whitelist-add`, `whitelist-remove`; `Configuration\SettingsWriter.cs` merges
+into the override JSON atomically (tmp + `File.Move`) and preserves any
+unmanaged keys an admin added by hand. The same self-lockout invariant from
+`Install.ps1` (empty whitelist + threshold < 3) is enforced server-side.
+
+`reloadOnChange: true` is still inert because consumers cache `IOptions.Value`
+in their constructors. **Whitelist** is the one exception: `Worker._whitelist`
+is a swappable `WhitelistEvaluator` (Volatile.Read in the consumer,
+Interlocked.Exchange in `ApplyWhitelistHot`) so whitelist edits take effect
+without a restart. All other five settings still require
+`Restart-Service BlockRdpBruteForce` to pick up.
+
 ### Windows-only attribute discipline
 
 Most code is annotated `[SupportedOSPlatform("windows")]`. `Program.cs` exits

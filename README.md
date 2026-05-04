@@ -129,7 +129,9 @@ the override wins.
 | `MaxRemoteAddressesPerRule` | Past this size the rule is sharded into `-2`, `-3`, … siblings |
 | `EvaluateNlaFallback` | Enables the RdpCoreTS event-140 subscription |
 
-After editing the override, restart the service:
+Edits to `Whitelist` take effect immediately when applied via the CLI/tray
+(`config set`, `whitelist add/remove`, or the **Settings…** dialog). Other
+settings require a service restart:
 
 ```powershell
 Restart-Service BlockRdpBruteForce
@@ -141,16 +143,28 @@ The service exe doubles as the CLI. Run it from `C:\Program Files\BlockRdpBruteF
 (or wherever you installed):
 
 ```powershell
-BlockRdpBruteForce.exe status              # service health, blocked count, threshold
-BlockRdpBruteForce.exe list                # blocked IPs with first/last seen + TTL
-BlockRdpBruteForce.exe unblock 1.2.3.4     # remove an IP (admin only)
-BlockRdpBruteForce.exe pause [minutes]     # pause blocking, default 60 min (admin only)
-BlockRdpBruteForce.exe resume              # resume blocking (admin only)
+BlockRdpBruteForce.exe status                          # service health, blocked count, threshold
+BlockRdpBruteForce.exe list                            # blocked IPs with first/last seen + TTL
+BlockRdpBruteForce.exe unblock 1.2.3.4                 # remove an IP (admin only)
+BlockRdpBruteForce.exe pause [minutes]                 # pause blocking, default 60 min (admin only)
+BlockRdpBruteForce.exe resume                          # resume blocking (admin only)
+BlockRdpBruteForce.exe config                          # show effective settings (admin only)
+BlockRdpBruteForce.exe config set <key> <value>        # update a setting (admin only)
+BlockRdpBruteForce.exe whitelist add 192.168.1.0/24    # hot-add to whitelist (admin only)
+BlockRdpBruteForce.exe whitelist remove 192.168.1.0/24 # hot-remove from whitelist (admin only)
 ```
+
+`config set` keys: `failure-threshold`, `sliding-window-minutes`,
+`block-duration-minutes`, `firewall-scope`, `evaluate-nla-fallback`. Whitelist
+edits go through `whitelist add/remove`. Edits are persisted to
+`%ProgramData%\BlockRdpBruteForce\appsettings.json`. The same self-lockout
+guard the installer uses (empty whitelist + threshold < 3) is enforced
+server-side, so the CLI will refuse a setting that would lock you out — edit
+the JSON file directly if you really need to bypass.
 
 The CLI talks to the service over a named pipe (`\\.\pipe\BlockRdpBruteForce`).
 Read commands (`status`, `list`) are available to interactive users; mutating
-commands require Administrators-group membership.
+commands and `config get/set` require Administrators-group membership.
 
 ## Tray app
 
@@ -159,6 +173,9 @@ status every few seconds and offers:
 
 - "Show blocked IPs…" — sortable dialog with manual unblock
 - "Pause for 1 hour" / "Resume"
+- "Settings…" — edit thresholds, window, block duration, firewall scope,
+  whitelist, and NLA fallback (admin only; whitelist takes effect
+  immediately, other changes prompt for a restart)
 - "Open log folder"
 
 Install with `-RegisterTrayAutostart` to launch it at logon, or run it manually

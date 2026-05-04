@@ -19,9 +19,11 @@ public sealed class TrayContext : ApplicationContext
     private readonly ToolStripMenuItem _showItem;
     private readonly ToolStripMenuItem _pauseItem;
     private readonly ToolStripMenuItem _resumeItem;
+    private readonly ToolStripMenuItem _settingsItem;
     private readonly ToolStripMenuItem _openLogsItem;
     private readonly ToolStripMenuItem _exitItem;
     private BlockedIpsForm? _openForm;
+    private SettingsForm? _settingsForm;
 
     public TrayContext()
     {
@@ -32,6 +34,7 @@ public sealed class TrayContext : ApplicationContext
         _showItem = new ToolStripMenuItem("Show blocked IPs...", null, OnShow);
         _pauseItem = new ToolStripMenuItem($"Pause for {PauseMinutesDefault} minutes", null, OnPause);
         _resumeItem = new ToolStripMenuItem("Resume", null, OnResume) { Visible = false };
+        _settingsItem = new ToolStripMenuItem("Settings...", null, OnSettings);
         _openLogsItem = new ToolStripMenuItem("Open log folder", null, OnOpenLogs);
         _exitItem = new ToolStripMenuItem("Exit tray", null, (_, _) => ExitThread());
 
@@ -40,6 +43,7 @@ public sealed class TrayContext : ApplicationContext
         menu.Items.Add(_pauseItem);
         menu.Items.Add(_resumeItem);
         menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add(_settingsItem);
         menu.Items.Add(_openLogsItem);
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(_exitItem);
@@ -165,6 +169,21 @@ public sealed class TrayContext : ApplicationContext
         }
     }
 
+    private void OnSettings(object? sender, EventArgs e)
+    {
+        if (_settingsForm is { IsDisposed: false })
+        {
+            _settingsForm.BringToFront();
+            _settingsForm.Activate();
+            return;
+        }
+
+        _settingsForm = new SettingsForm(_client);
+        _settingsForm.FormClosed += (_, _) => _settingsForm = null;
+        _settingsForm.Show();
+        _settingsForm.Activate();
+    }
+
     private void OnOpenLogs(object? sender, EventArgs e)
     {
         try
@@ -211,6 +230,7 @@ public sealed class TrayContext : ApplicationContext
             _icon.Visible = false;
             _icon.Dispose();
             _openForm?.Dispose();
+            _settingsForm?.Dispose();
         }
         base.Dispose(disposing);
     }

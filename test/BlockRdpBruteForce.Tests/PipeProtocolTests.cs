@@ -124,4 +124,80 @@ public sealed class PipeProtocolTests
         Assert.False(round!.Ok);
         Assert.Equal("administrator required", round.Error);
     }
+
+    [Fact]
+    public void RoundTrip_config_payload_preserves_all_fields()
+    {
+        var original = new ConfigPayload
+        {
+            FailureThreshold = 7,
+            SlidingWindowMinutes = 15,
+            BlockDurationMinutes = 0,
+            Whitelist = new List<string> { "127.0.0.1", "10.0.0.0/8" },
+            FirewallScope = "RdpOnly",
+            EvaluateNlaFallback = false,
+        };
+
+        var bytes = PipeProtocol.Encode(original);
+        var round = PipeProtocol.Decode<ConfigPayload>(bytes);
+
+        Assert.NotNull(round);
+        Assert.Equal(7, round!.FailureThreshold);
+        Assert.Equal(15, round.SlidingWindowMinutes);
+        Assert.Equal(0, round.BlockDurationMinutes);
+        Assert.Equal("RdpOnly", round.FirewallScope);
+        Assert.False(round.EvaluateNlaFallback);
+        Assert.Equal(new[] { "127.0.0.1", "10.0.0.0/8" }, round.Whitelist);
+    }
+
+    [Fact]
+    public void Partial_config_payload_omits_null_fields_in_json()
+    {
+        var bytes = PipeProtocol.Encode(new ConfigPayload { FailureThreshold = 5 });
+        var json = Encoding.UTF8.GetString(bytes).TrimEnd('\n');
+
+        Assert.Contains("\"failureThreshold\":", json);
+        Assert.DoesNotContain("\"slidingWindowMinutes\":", json);
+        Assert.DoesNotContain("\"whitelist\":", json);
+        Assert.DoesNotContain("\"firewallScope\":", json);
+    }
+
+    [Fact]
+    public void RoundTrip_config_set_result()
+    {
+        var original = new ConfigSetResult
+        {
+            Effective = new ConfigPayload { FailureThreshold = 7, Whitelist = new() { "10.0.0.0/8" } },
+            RestartRequired = true,
+            AppliedHot = new List<string> { "whitelist" },
+        };
+
+        var bytes = PipeProtocol.Encode(original);
+        var round = PipeProtocol.Decode<ConfigSetResult>(bytes);
+
+        Assert.NotNull(round);
+        Assert.True(round!.RestartRequired);
+        Assert.Single(round.AppliedHot);
+        Assert.Equal("whitelist", round.AppliedHot[0]);
+        Assert.Equal(7, round.Effective.FailureThreshold);
+    }
+
+    [Fact]
+    public void RoundTrip_pipe_request_with_config_and_cidr()
+    {
+        var original = new PipeRequest
+        {
+            Op = PipeOps.ConfigSet,
+            Config = new ConfigPayload { FailureThreshold = 9 },
+            Cidr = "192.168.1.0/24",
+        };
+
+        var bytes = PipeProtocol.Encode(original);
+        var round = PipeProtocol.Decode<PipeRequest>(bytes);
+
+        Assert.NotNull(round);
+        Assert.Equal(PipeOps.ConfigSet, round!.Op);
+        Assert.Equal(9, round.Config!.FailureThreshold);
+        Assert.Equal("192.168.1.0/24", round.Cidr);
+    }
 }

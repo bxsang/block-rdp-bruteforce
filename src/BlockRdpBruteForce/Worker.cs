@@ -26,7 +26,8 @@ public sealed class Worker : BackgroundService, IPipeOps
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<Worker> _log;
     private readonly FailureTracker _tracker;
-    private readonly WhitelistEvaluator _whitelist;
+    private WhitelistEvaluator _whitelist;
+    private readonly SettingsWriter? _settings;
     private readonly Channel<FailedLogon> _channel;
     private readonly DateTime _startedUtc = DateTime.UtcNow;
     private long _pauseUntilUtcTicks;
@@ -39,7 +40,8 @@ public sealed class Worker : BackgroundService, IPipeOps
         UnblockScheduler unblock,
         SemaphoreSlim gate,
         ILoggerFactory loggerFactory,
-        ILogger<Worker> log)
+        ILogger<Worker> log,
+        SettingsWriter? settings = null)
     {
         _options = options.Value;
         _state = state;
@@ -49,6 +51,7 @@ public sealed class Worker : BackgroundService, IPipeOps
         _gate = gate;
         _loggerFactory = loggerFactory;
         _log = log;
+        _settings = settings;
 
         _tracker = new FailureTracker(
             _options.FailureThreshold,
@@ -70,7 +73,7 @@ public sealed class Worker : BackgroundService, IPipeOps
             _options.FailureThreshold,
             _options.SlidingWindowMinutes,
             _options.BlockDurationMinutes,
-            _whitelist.EntryCount);
+            CurrentWhitelist.EntryCount);
 
         _state.Load();
         _log.LogInformation("Loaded {Count} state record(s) from {Path}",
@@ -159,7 +162,7 @@ public sealed class Worker : BackgroundService, IPipeOps
     {
         try
         {
-            if (_whitelist.IsWhitelisted(failure.Ip))
+            if (CurrentWhitelist.IsWhitelisted(failure.Ip))
             {
                 _log.LogDebug("Skipping whitelisted IP {Ip}", failure.Ip);
                 return;
@@ -230,6 +233,8 @@ public sealed class Worker : BackgroundService, IPipeOps
         }
     }
 
+    private WhitelistEvaluator CurrentWhitelist => Volatile.Read(ref _whitelist);
+
     public StatusPayload GetStatus() => new()
     {
         ServiceName = "BlockRdpBruteForce",
@@ -238,7 +243,7 @@ public sealed class Worker : BackgroundService, IPipeOps
         BlockDurationMinutes = _options.BlockDurationMinutes,
         FirewallRuleName = _options.FirewallRuleName,
         BlockedIpCount = _state.ActiveBlockedIps(DateTime.UtcNow).Count,
-        WhitelistEntryCount = _whitelist.EntryCount,
+        WhitelistEntryCount = CurrentWhitelist.EntryCount,
         EvaluateNlaFallback = _options.EvaluateNlaFallback,
         NowUtc = DateTime.UtcNow,
         StartedUtc = _startedUtc,
@@ -302,5 +307,34 @@ public sealed class Worker : BackgroundService, IPipeOps
         if (ticks == 0) return null;
         var until = new DateTime(ticks, DateTimeKind.Utc);
         return until > DateTime.UtcNow ? until : null;
+    }
+
+    public ConfigPayload GetConfig()
+    {
+        if (_settings is null) throw new InvalidOperationException("SettingsWriter not configured");
+        return _settings.GetEffective();
+    }
+
+    public ConfigSetResult SetConfig(ConfigPayload payload, string callerName)
+    {
+        if (_settings is null) throw new InvalidOperationException("SettingsWriter not configured");
+        ArgumentNullException.ThrowIfNull(payload);
+
+        var result = _settings.Apply(payload, callerName);
+
+        if (result.AppliedHot.Contains("whitelist") && result.Effective.Whitelist is { } entries)
+        {
+            ApplyWhitelistHot(entries);
+        }
+        return result;
+    }
+
+    private void ApplyWhitelistHot(IReadOnlyList<string> entries)
+    {
+        var next = new WhitelistEvaluator(entries);
+        var prev = Interlocked.Exchange(ref _whitelist, next);
+        _log.LogInformation(
+            "Whitelist hot-applied (entries: {Old} -> {New})",
+            prev?.EntryCount ?? 0, next.EntryCount);
     }
 }

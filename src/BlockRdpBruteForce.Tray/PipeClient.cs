@@ -37,6 +37,26 @@ public sealed class PipeClient
             new PipeRequest { Op = PipeOps.Resume },
             r => r.Pause!, ct);
 
+    public Task<ConfigPayload> ConfigGetAsync(CancellationToken ct = default) =>
+        InvokeAsync(
+            new PipeRequest { Op = PipeOps.ConfigGet },
+            r => r.ConfigEffective!, ct);
+
+    public Task<ConfigSetResult> ConfigSetAsync(ConfigPayload payload, CancellationToken ct = default) =>
+        InvokeAsync(
+            new PipeRequest { Op = PipeOps.ConfigSet, Config = payload },
+            r => r.ConfigSet!, ct);
+
+    public Task<ConfigSetResult> WhitelistAddAsync(string cidr, CancellationToken ct = default) =>
+        InvokeAsync(
+            new PipeRequest { Op = PipeOps.WhitelistAdd, Cidr = cidr },
+            r => r.ConfigSet!, ct);
+
+    public Task<ConfigSetResult> WhitelistRemoveAsync(string cidr, CancellationToken ct = default) =>
+        InvokeAsync(
+            new PipeRequest { Op = PipeOps.WhitelistRemove, Cidr = cidr },
+            r => r.ConfigSet!, ct);
+
     private async Task<T> InvokeAsync<T>(PipeRequest request, Func<PipeResponse, T> select, CancellationToken ct)
     {
         await using var client = new NamedPipeClientStream(

@@ -44,6 +44,18 @@ public sealed class WorkerPipeOpsTests : IDisposable
         var sync = new FirewallRuleSync(_firewall, _state, NullLogger<FirewallRuleSync>.Instance);
         var unblock = new UnblockScheduler(_firewall, _state, gate, NullLogger<UnblockScheduler>.Instance);
 
+        var settingsPath = Path.Combine(_stateDir, "appsettings.json");
+        var initialPayload = new ConfigPayload
+        {
+            FailureThreshold = options.Value.FailureThreshold,
+            SlidingWindowMinutes = options.Value.SlidingWindowMinutes,
+            BlockDurationMinutes = options.Value.BlockDurationMinutes,
+            Whitelist = options.Value.Whitelist.ToList(),
+            FirewallScope = options.Value.FirewallScope,
+            EvaluateNlaFallback = options.Value.EvaluateNlaFallback,
+        };
+        var settings = new SettingsWriter(initialPayload, settingsPath, NullLogger<SettingsWriter>.Instance);
+
         _worker = new Worker(
             options,
             _state,
@@ -52,7 +64,8 @@ public sealed class WorkerPipeOpsTests : IDisposable
             unblock,
             gate,
             NullLoggerFactory.Instance,
-            NullLogger<Worker>.Instance);
+            NullLogger<Worker>.Instance,
+            settings);
     }
 
     public void Dispose()
@@ -172,5 +185,52 @@ public sealed class WorkerPipeOpsTests : IDisposable
         var payload = _worker.Pause(TimeSpan.Zero);
 
         Assert.Null(payload.PausedUntilUtc);
+    }
+
+    [Fact]
+    public void GetConfig_returns_current_settings()
+    {
+        var config = _worker.GetConfig();
+        Assert.Equal(3, config.FailureThreshold);
+        Assert.Equal(10, config.SlidingWindowMinutes);
+        Assert.Equal(60, config.BlockDurationMinutes);
+        Assert.Equal(new List<string> { "10.0.0.0/8" }, config.Whitelist);
+    }
+
+    [Fact]
+    public void SetConfig_whitelist_change_hot_applies_to_evaluator()
+    {
+        // Sanity: 192.168.1.5 currently not whitelisted
+        Assert.Equal(1, _worker.GetStatus().WhitelistEntryCount);
+
+        var result = _worker.SetConfig(
+            new ConfigPayload { Whitelist = new List<string> { "10.0.0.0/8", "192.168.1.0/24" } },
+            "test");
+
+        Assert.False(result.RestartRequired);
+        Assert.Contains("whitelist", result.AppliedHot);
+        Assert.Equal(2, _worker.GetStatus().WhitelistEntryCount);
+    }
+
+    [Fact]
+    public void SetConfig_threshold_change_requires_restart()
+    {
+        var result = _worker.SetConfig(
+            new ConfigPayload { FailureThreshold = 7 },
+            "test");
+
+        Assert.True(result.RestartRequired);
+        Assert.Empty(result.AppliedHot);
+        // Status still reflects in-memory value (restart needed to pick up new threshold).
+        Assert.Equal(3, _worker.GetStatus().FailureThreshold);
+        // GetConfig returns the just-written file value.
+        Assert.Equal(7, _worker.GetConfig().FailureThreshold);
+    }
+
+    [Fact]
+    public void SetConfig_invalid_payload_throws_validation()
+    {
+        Assert.Throws<ConfigValidationException>(() => _worker.SetConfig(
+            new ConfigPayload { FailureThreshold = 0 }, "test"));
     }
 }

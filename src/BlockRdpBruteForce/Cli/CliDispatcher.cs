@@ -12,7 +12,8 @@ namespace BlockRdpBruteForce.Cli;
 [SupportedOSPlatform("windows")]
 public static class CliDispatcher
 {
-    private static readonly string[] KnownVerbs = { "status", "list", "unblock", "pause", "resume" };
+    private static readonly string[] KnownVerbs =
+        { "status", "list", "unblock", "pause", "resume", "config", "whitelist" };
 
     public static bool IsCliInvocation(string[] args) =>
         args.Length > 0 && KnownVerbs.Contains(args[0], StringComparer.OrdinalIgnoreCase);
@@ -31,6 +32,8 @@ public static class CliDispatcher
                 "unblock" => RunUnblock(pipeName, args),
                 "pause" => RunPause(pipeName, args),
                 "resume" => RunSimple(pipeName, new PipeRequest { Op = PipeOps.Resume }, "Resumed."),
+                "config" => RunConfig(pipeName, args),
+                "whitelist" => RunWhitelist(pipeName, args),
                 _ => PrintUsage(),
             };
         }
@@ -164,6 +167,125 @@ public static class CliDispatcher
         return 0;
     }
 
+    private static int RunConfig(string pipeName, string[] args)
+    {
+        var sub = args.Length >= 2 ? args[1].ToLowerInvariant() : "get";
+
+        if (sub == "get")
+        {
+            var response = SendRequest(pipeName, new PipeRequest { Op = PipeOps.ConfigGet });
+            if (!response.Ok || response.ConfigEffective is null)
+                return ReportError(response, "config get failed");
+            PrintConfig(response.ConfigEffective);
+            return 0;
+        }
+
+        if (sub == "set")
+        {
+            if (args.Length < 4)
+            {
+                Console.Error.WriteLine("Usage: BlockRdpBruteForce config set <key> <value>");
+                Console.Error.WriteLine("  Keys: failure-threshold, sliding-window-minutes, block-duration-minutes,");
+                Console.Error.WriteLine("        firewall-scope, evaluate-nla-fallback");
+                return 64;
+            }
+            var key = args[2].ToLowerInvariant();
+            var value = args[3];
+            var payload = new ConfigPayload();
+            switch (key)
+            {
+                case "failure-threshold":
+                    if (!int.TryParse(value, out var ft))
+                        return Fail($"failure-threshold must be an integer (got '{value}')");
+                    payload.FailureThreshold = ft;
+                    break;
+                case "sliding-window-minutes":
+                    if (!int.TryParse(value, out var sw))
+                        return Fail($"sliding-window-minutes must be an integer (got '{value}')");
+                    payload.SlidingWindowMinutes = sw;
+                    break;
+                case "block-duration-minutes":
+                    if (!int.TryParse(value, out var bd))
+                        return Fail($"block-duration-minutes must be an integer (got '{value}')");
+                    payload.BlockDurationMinutes = bd;
+                    break;
+                case "firewall-scope":
+                    payload.FirewallScope = value;
+                    break;
+                case "evaluate-nla-fallback":
+                    if (!bool.TryParse(value, out var nla))
+                        return Fail($"evaluate-nla-fallback must be true/false (got '{value}')");
+                    payload.EvaluateNlaFallback = nla;
+                    break;
+                default:
+                    return Fail($"unknown config key: {key}");
+            }
+
+            var response = SendRequest(pipeName, new PipeRequest { Op = PipeOps.ConfigSet, Config = payload });
+            if (!response.Ok || response.ConfigSet is null)
+                return ReportError(response, "config set failed");
+            PrintSetResult(response.ConfigSet);
+            return 0;
+        }
+
+        Console.Error.WriteLine("Usage: BlockRdpBruteForce config [get|set <key> <value>]");
+        return 64;
+    }
+
+    private static int RunWhitelist(string pipeName, string[] args)
+    {
+        if (args.Length < 3)
+        {
+            Console.Error.WriteLine("Usage: BlockRdpBruteForce whitelist add|remove <cidr>");
+            return 64;
+        }
+        var sub = args[1].ToLowerInvariant();
+        var cidr = args[2];
+        var op = sub switch
+        {
+            "add" => PipeOps.WhitelistAdd,
+            "remove" => PipeOps.WhitelistRemove,
+            _ => null,
+        };
+        if (op is null)
+        {
+            Console.Error.WriteLine("Usage: BlockRdpBruteForce whitelist add|remove <cidr>");
+            return 64;
+        }
+
+        var response = SendRequest(pipeName, new PipeRequest { Op = op, Cidr = cidr });
+        if (!response.Ok || response.ConfigSet is null)
+            return ReportError(response, $"whitelist {sub} failed");
+        PrintSetResult(response.ConfigSet);
+        return 0;
+    }
+
+    private static void PrintConfig(ConfigPayload c)
+    {
+        Console.WriteLine($"FailureThreshold:     {c.FailureThreshold}");
+        Console.WriteLine($"SlidingWindowMinutes: {c.SlidingWindowMinutes}");
+        Console.WriteLine($"BlockDurationMinutes: {c.BlockDurationMinutes}{(c.BlockDurationMinutes <= 0 ? " (permanent)" : string.Empty)}");
+        Console.WriteLine($"FirewallScope:        {c.FirewallScope}");
+        Console.WriteLine($"EvaluateNlaFallback:  {c.EvaluateNlaFallback}");
+        Console.WriteLine($"Whitelist:            {(c.Whitelist is { Count: > 0 } w ? string.Join(", ", w) : "(empty)")}");
+    }
+
+    private static void PrintSetResult(ConfigSetResult result)
+    {
+        if (result.AppliedHot.Count > 0 && !result.RestartRequired)
+            Console.WriteLine("Settings updated. Active immediately (whitelist hot-applied).");
+        else if (result.AppliedHot.Count > 0 && result.RestartRequired)
+            Console.WriteLine("Settings updated. Whitelist active immediately; other changes require service restart.");
+        else
+            Console.WriteLine("Settings updated. Restart the service to take effect (e.g., `Restart-Service BlockRdpBruteForce`).");
+    }
+
+    private static int Fail(string message)
+    {
+        Console.Error.WriteLine(message);
+        return 64;
+    }
+
     private static PipeResponse SendRequest(string pipeName, PipeRequest request)
     {
         using var client = new NamedPipeClientStream(
@@ -214,11 +336,15 @@ public static class CliDispatcher
     {
         var text = new StringBuilder();
         text.AppendLine("Usage: BlockRdpBruteForce <verb>");
-        text.AppendLine("  status              Print service status");
-        text.AppendLine("  list                List blocked IPs");
-        text.AppendLine("  unblock <ip>        Remove IP from block list (admin only)");
-        text.AppendLine("  pause [minutes]     Pause blocking (default 60 min, admin only)");
-        text.AppendLine("  resume              Resume blocking (admin only)");
+        text.AppendLine("  status                       Print service status");
+        text.AppendLine("  list                         List blocked IPs");
+        text.AppendLine("  unblock <ip>                 Remove IP from block list (admin only)");
+        text.AppendLine("  pause [minutes]              Pause blocking (default 60 min, admin only)");
+        text.AppendLine("  resume                       Resume blocking (admin only)");
+        text.AppendLine("  config [get]                 Show effective settings (admin only)");
+        text.AppendLine("  config set <key> <value>     Update a setting (admin only)");
+        text.AppendLine("  whitelist add <cidr>         Add IP/CIDR to whitelist (hot, admin only)");
+        text.AppendLine("  whitelist remove <cidr>      Remove IP/CIDR from whitelist (hot, admin only)");
         Console.Error.WriteLine(text.ToString());
         return 64;
     }

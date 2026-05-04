@@ -9,4 +9,6 @@ public interface IPipeOps
     Task<UnblockPayload> UnblockAsync(IPAddress ip, CancellationToken ct);
     PausePayload Pause(TimeSpan duration);
     PausePayload Resume();
+    ConfigPayload GetConfig();
+    ConfigSetResult SetConfig(ConfigPayload payload, string callerName);
 }

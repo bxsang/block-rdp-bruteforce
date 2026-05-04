@@ -176,6 +176,61 @@ public sealed class PipeServer : BackgroundService
                 return new PipeResponse { Ok = true, Pause = payload };
             }
 
+            case PipeOps.ConfigGet:
+            {
+                if (!RequireAdmin(pipe)) return PipeResponse.Failure("administrator required");
+                return new PipeResponse { Ok = true, ConfigEffective = ops.GetConfig() };
+            }
+
+            case PipeOps.ConfigSet:
+            {
+                if (!RequireAdmin(pipe)) return PipeResponse.Failure("administrator required");
+                if (request.Config is null) return PipeResponse.Failure("config payload required");
+                try
+                {
+                    var caller = SafeGetClientName(pipe);
+                    var result = ops.SetConfig(request.Config, caller);
+                    return new PipeResponse { Ok = true, ConfigSet = result };
+                }
+                catch (ConfigValidationException ex)
+                {
+                    return PipeResponse.Failure(ex.Message);
+                }
+            }
+
+            case PipeOps.WhitelistAdd:
+            case PipeOps.WhitelistRemove:
+            {
+                if (!RequireAdmin(pipe)) return PipeResponse.Failure("administrator required");
+                if (string.IsNullOrWhiteSpace(request.Cidr))
+                    return PipeResponse.Failure("cidr required");
+
+                var entry = request.Cidr.Trim();
+                var current = ops.GetConfig();
+                var list = current.Whitelist?.ToList() ?? new List<string>();
+
+                if (request.Op == PipeOps.WhitelistAdd)
+                {
+                    if (!list.Any(e => string.Equals(e, entry, StringComparison.OrdinalIgnoreCase)))
+                        list.Add(entry);
+                }
+                else
+                {
+                    list.RemoveAll(e => string.Equals(e, entry, StringComparison.OrdinalIgnoreCase));
+                }
+
+                try
+                {
+                    var caller = SafeGetClientName(pipe);
+                    var result = ops.SetConfig(new ConfigPayload { Whitelist = list }, caller);
+                    return new PipeResponse { Ok = true, ConfigSet = result };
+                }
+                catch (ConfigValidationException ex)
+                {
+                    return PipeResponse.Failure(ex.Message);
+                }
+            }
+
             default:
                 return PipeResponse.Failure($"unknown op: {request.Op}");
         }
