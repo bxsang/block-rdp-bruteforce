@@ -78,6 +78,9 @@ public sealed class SettingsWriter
             if (payload.EvaluateNlaFallback.HasValue && payload.EvaluateNlaFallback != _current.EvaluateNlaFallback)
             { changedKeys.Add(nameof(ConfigPayload.EvaluateNlaFallback)); restartRequired = true; }
 
+            if (payload.HistoryRetentionDays.HasValue && payload.HistoryRetentionDays != _current.HistoryRetentionDays)
+            { changedKeys.Add(nameof(ConfigPayload.HistoryRetentionDays)); restartRequired = true; }
+
             if (payload.Whitelist is not null &&
                 !WhitelistEquals(NormalizeWhitelist(payload.Whitelist), _current.Whitelist ?? new()))
             { changedKeys.Add(nameof(ConfigPayload.Whitelist)); hot.Add("whitelist"); }
@@ -122,6 +125,8 @@ public sealed class SettingsWriter
             throw new ConfigValidationException("BlockDurationMinutes must be >= 0 (0 = permanent)");
         if (merged.EvaluateNlaFallback is null)
             throw new ConfigValidationException("EvaluateNlaFallback must be a boolean");
+        if (merged.HistoryRetentionDays is not int hr || hr < 0)
+            throw new ConfigValidationException("HistoryRetentionDays must be >= 0 (0 = keep forever)");
 
         var scope = merged.FirewallScope ?? string.Empty;
         if (!AllowedScopes.Contains(scope, StringComparer.Ordinal))
@@ -155,6 +160,7 @@ public sealed class SettingsWriter
                                 ? current.FirewallScope
                                 : NormalizeScope(payload.FirewallScope),
         EvaluateNlaFallback  = payload.EvaluateNlaFallback  ?? current.EvaluateNlaFallback,
+        HistoryRetentionDays = payload.HistoryRetentionDays ?? current.HistoryRetentionDays,
     };
 
     private static List<string> NormalizeWhitelist(IEnumerable<string> entries)
@@ -211,6 +217,7 @@ public sealed class SettingsWriter
             [nameof(AppOptions.BlockDurationMinutes)] = candidate.BlockDurationMinutes!.Value,
             [nameof(AppOptions.FirewallScope)]        = candidate.FirewallScope,
             [nameof(AppOptions.EvaluateNlaFallback)]  = candidate.EvaluateNlaFallback!.Value,
+            [nameof(AppOptions.HistoryRetentionDays)] = candidate.HistoryRetentionDays!.Value,
         };
         var arr = new JsonArray();
         foreach (var w in candidate.Whitelist ?? new()) arr.Add(w);
@@ -252,6 +259,7 @@ public sealed class SettingsWriter
         Whitelist = src.Whitelist?.ToList(),
         FirewallScope = src.FirewallScope,
         EvaluateNlaFallback = src.EvaluateNlaFallback,
+        HistoryRetentionDays = src.HistoryRetentionDays,
     };
 
     private static ConfigPayload SnapshotFrom(IOptions<AppOptions> initial)
@@ -266,6 +274,7 @@ public sealed class SettingsWriter
             Whitelist = src.Whitelist?.ToList() ?? new List<string>(),
             FirewallScope = src.FirewallScope,
             EvaluateNlaFallback = src.EvaluateNlaFallback,
+            HistoryRetentionDays = src.HistoryRetentionDays,
         };
     }
 

@@ -1,3 +1,4 @@
+using System.Net;
 using BlockRdpBruteForce.Firewall;
 using BlockRdpBruteForce.State;
 using Microsoft.Extensions.Logging;
@@ -10,33 +11,54 @@ public sealed class UnblockScheduler
     private readonly StateStore _state;
     private readonly SemaphoreSlim _gate;
     private readonly ILogger<UnblockScheduler> _log;
+    private readonly int _historyRetentionDays;
 
-    public UnblockScheduler(IFirewallManager firewall, StateStore state, SemaphoreSlim gate, ILogger<UnblockScheduler> log)
+    public UnblockScheduler(
+        IFirewallManager firewall,
+        StateStore state,
+        SemaphoreSlim gate,
+        ILogger<UnblockScheduler> log,
+        int historyRetentionDays = 0)
     {
+        if (historyRetentionDays < 0) throw new ArgumentOutOfRangeException(nameof(historyRetentionDays));
         _firewall = firewall;
         _state = state;
         _gate = gate;
         _log = log;
+        _historyRetentionDays = historyRetentionDays;
     }
 
     public async Task<int> RunOnceAsync(DateTime utcNow, CancellationToken ct = default)
     {
-        if (_state.ExpiredIps(utcNow).Count == 0) return 0;
-
         await _gate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            var expired = _state.ExpiredIps(utcNow);
-            if (expired.Count == 0) return 0;
+            var active = new HashSet<IPAddress>(_state.ActiveBlockedIps(utcNow));
+            var stale = _firewall.GetBlockedIps().Where(ip => !active.Contains(ip)).ToList();
+            var stateChanged = false;
 
-            foreach (var ip in expired)
-                _state.Remove(ip);
+            if (stale.Count > 0)
+            {
+                _firewall.SetIps(active);
+                _log.LogInformation("Cleared {Count} expired IPs from firewall (history retained).", stale.Count);
+            }
 
-            _firewall.SetIps(_state.ActiveBlockedIps(utcNow));
-            _state.Save();
+            if (_historyRetentionDays > 0)
+            {
+                var cutoff = utcNow - TimeSpan.FromDays(_historyRetentionDays);
+                var pruned = _state.PruneHistoryOlderThan(cutoff, utcNow);
+                if (pruned.Count > 0)
+                {
+                    stateChanged = true;
+                    _log.LogInformation(
+                        "Pruned {Count} historical record(s) older than {Days} day(s).",
+                        pruned.Count, _historyRetentionDays);
+                }
+            }
 
-            _log.LogInformation("Unblocked {Count} expired IPs.", expired.Count);
-            return expired.Count;
+            if (stateChanged) _state.Save();
+
+            return stale.Count;
         }
         finally
         {

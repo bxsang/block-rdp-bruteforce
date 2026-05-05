@@ -14,5 +14,6 @@ public sealed class AppOptions
     public string LogPath { get; set; } = @"%ProgramData%\BlockRdpBruteForce\logs\service-.log";
     public int MaxRemoteAddressesPerRule { get; set; } = 1000;
     public bool EvaluateNlaFallback { get; set; } = true;
+    public int HistoryRetentionDays { get; set; } = 90;
     public string PipeName { get; set; } = "BlockRdpBruteForce";
 }

@@ -163,6 +163,70 @@ public class StateStoreTests : IDisposable
     }
 
     [Fact]
+    public void MarkExpired_Sets_BlockedUntilUtc_To_Now_And_Preserves_Count()
+    {
+        var store = new StateStore(FilePath());
+        var ip = IPAddress.Parse("203.0.113.1");
+        var t = new DateTime(2025, 1, 1, 12, 0, 0, DateTimeKind.Utc);
+        store.Upsert(ip, t, TimeSpan.FromHours(1));
+        store.Upsert(ip, t.AddMinutes(5), TimeSpan.FromHours(1));
+        var beforeCount = store.TryGet(ip)!.Count;
+
+        var unblockedAt = t.AddMinutes(10);
+        Assert.True(store.MarkExpired(ip, unblockedAt));
+
+        var rec = store.TryGet(ip)!;
+        Assert.Equal(beforeCount, rec.Count);
+        Assert.Equal(unblockedAt, rec.BlockedUntilUtc);
+        Assert.DoesNotContain(ip, store.ActiveBlockedIps(unblockedAt.AddSeconds(1)));
+    }
+
+    [Fact]
+    public void MarkExpired_Returns_False_For_Unknown_Ip()
+    {
+        var store = new StateStore(FilePath());
+        Assert.False(store.MarkExpired(IPAddress.Parse("203.0.113.1"), DateTime.UtcNow));
+    }
+
+    [Fact]
+    public void PruneHistoryOlderThan_Removes_Old_Historical_Records_Only()
+    {
+        var store = new StateStore(FilePath());
+        var t = new DateTime(2025, 1, 1, 12, 0, 0, DateTimeKind.Utc);
+
+        var oldHistory = IPAddress.Parse("203.0.113.1");
+        var recentHistory = IPAddress.Parse("203.0.113.2");
+        var active = IPAddress.Parse("203.0.113.3");
+        var permanent = IPAddress.Parse("203.0.113.4");
+
+        store.Upsert(oldHistory, t.AddDays(-100), TimeSpan.FromMinutes(60));
+        store.Upsert(recentHistory, t.AddDays(-30), TimeSpan.FromMinutes(60));
+        store.Upsert(active, t, TimeSpan.FromHours(1));
+        store.Upsert(permanent, t.AddDays(-200), null);
+
+        var cutoff = t - TimeSpan.FromDays(90);
+        var pruned = store.PruneHistoryOlderThan(cutoff, t);
+
+        Assert.Single(pruned);
+        Assert.Contains(oldHistory, pruned);
+        Assert.Null(store.TryGet(oldHistory));
+        Assert.NotNull(store.TryGet(recentHistory));
+        Assert.NotNull(store.TryGet(active));
+        Assert.NotNull(store.TryGet(permanent));
+    }
+
+    [Fact]
+    public void PruneHistoryOlderThan_Returns_Empty_When_No_Matches()
+    {
+        var store = new StateStore(FilePath());
+        var t = new DateTime(2025, 1, 1, 12, 0, 0, DateTimeKind.Utc);
+        store.Upsert(IPAddress.Parse("203.0.113.1"), t, TimeSpan.FromHours(1));
+
+        var pruned = store.PruneHistoryOlderThan(t - TimeSpan.FromDays(30), t);
+        Assert.Empty(pruned);
+    }
+
+    [Fact]
     public void Snapshot_Is_A_Defensive_Copy()
     {
         var store = new StateStore(FilePath());

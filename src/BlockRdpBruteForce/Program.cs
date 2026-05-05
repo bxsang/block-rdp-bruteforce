@@ -44,7 +44,12 @@ static int RunService(string[] args)
     builder.Services.AddSingleton<IFirewallManager, FirewallManager>();
     builder.Services.AddSingleton<SemaphoreSlim>(_ => new SemaphoreSlim(1, 1));
     builder.Services.AddSingleton<FirewallRuleSync>();
-    builder.Services.AddSingleton<UnblockScheduler>();
+    builder.Services.AddSingleton<UnblockScheduler>(sp => new UnblockScheduler(
+        sp.GetRequiredService<IFirewallManager>(),
+        sp.GetRequiredService<StateStore>(),
+        sp.GetRequiredService<SemaphoreSlim>(),
+        sp.GetRequiredService<ILogger<UnblockScheduler>>(),
+        sp.GetRequiredService<IOptions<AppOptions>>().Value.HistoryRetentionDays));
     builder.Services.AddSingleton<SettingsWriter>();
 
 #pragma warning disable CA1416 // RunService is gated on OperatingSystem.IsWindows() at the call site

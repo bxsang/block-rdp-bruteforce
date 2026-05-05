@@ -47,6 +47,7 @@ public sealed class ConfigPayload
     public List<string>? Whitelist { get; set; }
     public string? FirewallScope { get; set; }
     public bool? EvaluateNlaFallback { get; set; }
+    public int? HistoryRetentionDays { get; set; }
 }
 
 public sealed class ConfigSetResult

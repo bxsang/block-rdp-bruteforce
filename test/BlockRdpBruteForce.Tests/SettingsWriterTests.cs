@@ -28,6 +28,7 @@ public sealed class SettingsWriterTests : IDisposable
             Whitelist = new List<string> { "127.0.0.1", "10.0.0.0/8" },
             FirewallScope = "AllPorts",
             EvaluateNlaFallback = true,
+            HistoryRetentionDays = 90,
         };
         _writer = new SettingsWriter(initial, _path, NullLogger<SettingsWriter>.Instance);
     }
@@ -193,6 +194,31 @@ public sealed class SettingsWriterTests : IDisposable
         var arr = json["BlockRdp"]!["Whitelist"]!.AsArray();
         Assert.Equal(2, arr.Count);
         Assert.Equal("1.2.3.4", arr[0]!.GetValue<string>());
+    }
+
+    [Fact]
+    public void Apply_history_retention_change_writes_file_and_requires_restart()
+    {
+        var result = _writer.Apply(new ConfigPayload { HistoryRetentionDays = 30 }, "test");
+
+        Assert.True(result.RestartRequired);
+        Assert.Equal(30, result.Effective.HistoryRetentionDays);
+        var json = JsonNode.Parse(File.ReadAllText(_path))!;
+        Assert.Equal(30, json["BlockRdp"]!["HistoryRetentionDays"]!.GetValue<int>());
+    }
+
+    [Fact]
+    public void Validate_rejects_negative_history_retention()
+    {
+        Assert.Throws<ConfigValidationException>(() => _writer.Apply(
+            new ConfigPayload { HistoryRetentionDays = -1 }, "test"));
+    }
+
+    [Fact]
+    public void Apply_zero_history_retention_is_valid_and_means_keep_forever()
+    {
+        var result = _writer.Apply(new ConfigPayload { HistoryRetentionDays = 0 }, "test");
+        Assert.Equal(0, result.Effective.HistoryRetentionDays);
     }
 
     [Fact]

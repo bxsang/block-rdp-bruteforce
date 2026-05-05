@@ -53,6 +53,7 @@ public sealed class WorkerPipeOpsTests : IDisposable
             Whitelist = options.Value.Whitelist.ToList(),
             FirewallScope = options.Value.FirewallScope,
             EvaluateNlaFallback = options.Value.EvaluateNlaFallback,
+            HistoryRetentionDays = options.Value.HistoryRetentionDays,
         };
         var settings = new SettingsWriter(initialPayload, settingsPath, NullLogger<SettingsWriter>.Instance);
 
@@ -117,7 +118,7 @@ public sealed class WorkerPipeOpsTests : IDisposable
     }
 
     [Fact]
-    public async Task UnblockAsync_removes_state_firewall_and_returns_was_blocked_true()
+    public async Task UnblockAsync_clears_firewall_keeps_history_and_returns_was_blocked_true()
     {
         var ip = IPAddress.Parse("1.2.3.4");
         _state.Upsert(ip, DateTime.UtcNow, TimeSpan.FromHours(1));
@@ -127,8 +128,23 @@ public sealed class WorkerPipeOpsTests : IDisposable
 
         Assert.True(result.WasBlocked);
         Assert.Equal("1.2.3.4", result.Ip);
-        Assert.Null(_state.TryGet(ip));
+        var record = _state.TryGet(ip);
+        Assert.NotNull(record);
+        Assert.True(record!.BlockedUntilUtc <= DateTime.UtcNow);
+        Assert.DoesNotContain(ip, _state.ActiveBlockedIps(DateTime.UtcNow));
         Assert.DoesNotContain(ip, _firewall.GetBlockedIps());
+    }
+
+    [Fact]
+    public async Task UnblockAsync_for_already_historical_ip_returns_was_blocked_false()
+    {
+        var ip = IPAddress.Parse("1.2.3.4");
+        _state.Upsert(ip, DateTime.UtcNow.AddHours(-2), TimeSpan.FromHours(1));
+
+        var result = await _worker.UnblockAsync(ip, CancellationToken.None);
+
+        Assert.False(result.WasBlocked);
+        Assert.NotNull(_state.TryGet(ip));
     }
 
     [Fact]

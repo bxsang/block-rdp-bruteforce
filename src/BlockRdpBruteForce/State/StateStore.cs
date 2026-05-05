@@ -105,6 +105,33 @@ public sealed class StateStore
         lock (_gate) return _records.Remove(ip);
     }
 
+    public bool MarkExpired(IPAddress ip, DateTime utcNow)
+    {
+        ArgumentNullException.ThrowIfNull(ip);
+        lock (_gate)
+        {
+            if (!_records.TryGetValue(ip, out var rec)) return false;
+            rec.BlockedUntilUtc = utcNow;
+            return true;
+        }
+    }
+
+    public IReadOnlyList<IPAddress> PruneHistoryOlderThan(DateTime cutoffLastSeenUtc, DateTime utcNow)
+    {
+        lock (_gate)
+        {
+            var toRemove = _records
+                .Where(kv =>
+                    kv.Value.BlockedUntilUtc.HasValue
+                    && kv.Value.BlockedUntilUtc.Value <= utcNow
+                    && kv.Value.LastSeenUtc < cutoffLastSeenUtc)
+                .Select(kv => kv.Key)
+                .ToList();
+            foreach (var ip in toRemove) _records.Remove(ip);
+            return toRemove;
+        }
+    }
+
     public IpRecord? TryGet(IPAddress ip)
     {
         ArgumentNullException.ThrowIfNull(ip);

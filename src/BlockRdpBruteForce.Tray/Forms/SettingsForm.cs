@@ -12,6 +12,7 @@ public sealed class SettingsForm : Form
     private readonly NumericUpDown _failureThreshold;
     private readonly NumericUpDown _slidingWindow;
     private readonly NumericUpDown _blockDuration;
+    private readonly NumericUpDown _historyRetention;
     private readonly ComboBox _firewallScope;
     private readonly CheckBox _evaluateNla;
     private readonly ListBox _whitelistBox;
@@ -52,6 +53,7 @@ public sealed class SettingsForm : Form
         _failureThreshold = NewSpinner(1, 1000);
         _slidingWindow = NewSpinner(1, 1440);
         _blockDuration = NewSpinner(0, 525_600);
+        _historyRetention = NewSpinner(0, 3650);
 
         _firewallScope = new ComboBox
         {
@@ -71,6 +73,7 @@ public sealed class SettingsForm : Form
         AddRow(layout, 2, "Block duration (minutes, 0 = permanent):", _blockDuration);
         AddRow(layout, 3, "Firewall scope:", _firewallScope);
         AddRow(layout, 4, string.Empty, _evaluateNla);
+        AddRow(layout, 5, "History retention (days, 0 = keep forever):", _historyRetention);
 
         var whitelistGroup = new GroupBox
         {
@@ -186,6 +189,7 @@ public sealed class SettingsForm : Form
             _failureThreshold.Value = Clamp(c.FailureThreshold ?? 5, _failureThreshold);
             _slidingWindow.Value = Clamp(c.SlidingWindowMinutes ?? 10, _slidingWindow);
             _blockDuration.Value = Clamp(c.BlockDurationMinutes ?? 1440, _blockDuration);
+            _historyRetention.Value = Clamp(c.HistoryRetentionDays ?? 90, _historyRetention);
 
             var scope = c.FirewallScope ?? "AllPorts";
             _firewallScope.SelectedIndex = Math.Max(0, _firewallScope.Items.IndexOf(scope));
@@ -222,18 +226,21 @@ public sealed class SettingsForm : Form
         var ft = (int)_failureThreshold.Value;
         var sw = (int)_slidingWindow.Value;
         var bd = (int)_blockDuration.Value;
+        var hr = (int)_historyRetention.Value;
         var scope = _firewallScope.SelectedItem as string ?? "AllPorts";
         var nla = _evaluateNla.Checked;
 
         if (ft != _loaded.FailureThreshold) payload.FailureThreshold = ft;
         if (sw != _loaded.SlidingWindowMinutes) payload.SlidingWindowMinutes = sw;
         if (bd != _loaded.BlockDurationMinutes) payload.BlockDurationMinutes = bd;
+        if (hr != _loaded.HistoryRetentionDays) payload.HistoryRetentionDays = hr;
         if (!string.Equals(scope, _loaded.FirewallScope, StringComparison.Ordinal)) payload.FirewallScope = scope;
         if (nla != _loaded.EvaluateNlaFallback) payload.EvaluateNlaFallback = nla;
 
         if (payload.FailureThreshold is null
             && payload.SlidingWindowMinutes is null
             && payload.BlockDurationMinutes is null
+            && payload.HistoryRetentionDays is null
             && payload.FirewallScope is null
             && payload.EvaluateNlaFallback is null)
         {

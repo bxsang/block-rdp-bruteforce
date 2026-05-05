@@ -267,15 +267,17 @@ public sealed class Worker : BackgroundService, IPipeOps
         await _gate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
+            var utcNow = DateTime.UtcNow;
             var existing = _state.TryGet(ip);
-            var was = existing is not null;
+            var was = existing is not null
+                && (existing.BlockedUntilUtc is null || existing.BlockedUntilUtc > utcNow);
             if (was)
             {
-                _state.Remove(ip);
-                _firewall.SetIps(_state.ActiveBlockedIps(DateTime.UtcNow));
+                _state.MarkExpired(ip, utcNow);
+                _firewall.SetIps(_state.ActiveBlockedIps(utcNow));
                 _state.Save();
                 _tracker.Reset(ip);
-                _log.LogWarning("Manually unblocked {Ip}", ip);
+                _log.LogWarning("Manually unblocked {Ip} (history retained)", ip);
             }
             return new UnblockPayload { Ip = ip.ToString(), WasBlocked = was };
         }

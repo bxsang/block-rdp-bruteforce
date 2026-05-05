@@ -26,7 +26,7 @@ public class UnblockSchedulerTests : IDisposable
     private StateStore NewState() => new(Path.Combine(_dir, "state.json"));
 
     [Fact]
-    public async Task RunOnceAsync_Removes_Expired_From_State_And_Firewall()
+    public async Task RunOnceAsync_Removes_Expired_From_Firewall_But_Keeps_State_As_History()
     {
         var state = NewState();
         var fw = new InMemoryFirewallManager();
@@ -42,10 +42,31 @@ public class UnblockSchedulerTests : IDisposable
         var removed = await scheduler.RunOnceAsync(t);
 
         Assert.Equal(1, removed);
-        Assert.Null(state.TryGet(expiring));
+        var expiringRecord = state.TryGet(expiring);
+        Assert.NotNull(expiringRecord);
+        Assert.True(expiringRecord!.BlockedUntilUtc <= t);
         Assert.NotNull(state.TryGet(live));
         Assert.DoesNotContain(expiring, fw.GetBlockedIps());
         Assert.Contains(live, fw.GetBlockedIps());
+    }
+
+    [Fact]
+    public async Task RunOnceAsync_Is_Idempotent_After_Cleanup()
+    {
+        var state = NewState();
+        var fw = new InMemoryFirewallManager();
+        var t = new DateTime(2025, 1, 1, 12, 0, 0, DateTimeKind.Utc);
+
+        var expiring = IPAddress.Parse("203.0.113.1");
+        state.Upsert(expiring, t.AddMinutes(-60), TimeSpan.FromMinutes(5));
+        fw.AddIp(expiring);
+
+        var scheduler = new UnblockScheduler(fw, state, _gate, NullLogger<UnblockScheduler>.Instance);
+        var first = await scheduler.RunOnceAsync(t);
+        var second = await scheduler.RunOnceAsync(t);
+
+        Assert.Equal(1, first);
+        Assert.Equal(0, second);
     }
 
     [Fact]
@@ -67,22 +88,23 @@ public class UnblockSchedulerTests : IDisposable
     }
 
     [Fact]
-    public async Task RunOnceAsync_Persists_State_After_Removal()
+    public async Task RunOnceAsync_Keeps_History_Record_In_State()
     {
         var path = Path.Combine(_dir, "state.json");
         var state = new StateStore(path);
         var fw = new InMemoryFirewallManager();
         var t = new DateTime(2025, 1, 1, 12, 0, 0, DateTimeKind.Utc);
 
-        state.Upsert(IPAddress.Parse("203.0.113.1"), t.AddMinutes(-60), TimeSpan.FromMinutes(5));
-        fw.AddIp(IPAddress.Parse("203.0.113.1"));
+        var ip = IPAddress.Parse("203.0.113.1");
+        state.Upsert(ip, t.AddMinutes(-60), TimeSpan.FromMinutes(5));
+        fw.AddIp(ip);
 
         var scheduler = new UnblockScheduler(fw, state, _gate, NullLogger<UnblockScheduler>.Instance);
         await scheduler.RunOnceAsync(t);
 
-        var reloaded = new StateStore(path);
-        reloaded.Load();
-        Assert.Empty(reloaded.Snapshot());
+        Assert.NotNull(state.TryGet(ip));
+        Assert.DoesNotContain(ip, state.ActiveBlockedIps(t));
+        Assert.DoesNotContain(ip, fw.GetBlockedIps());
     }
 
     [Fact]
@@ -100,6 +122,54 @@ public class UnblockSchedulerTests : IDisposable
 
         Assert.Equal(0, removed);
         Assert.NotNull(state.TryGet(IPAddress.Parse("203.0.113.1")));
+    }
+
+    [Fact]
+    public async Task RunOnceAsync_Prunes_History_Older_Than_Retention_Window()
+    {
+        var path = Path.Combine(_dir, "state.json");
+        var state = new StateStore(path);
+        var fw = new InMemoryFirewallManager();
+        var t = new DateTime(2025, 1, 1, 12, 0, 0, DateTimeKind.Utc);
+
+        var oldHist = IPAddress.Parse("203.0.113.1");
+        var newHist = IPAddress.Parse("203.0.113.2");
+        var active = IPAddress.Parse("203.0.113.3");
+
+        state.Upsert(oldHist, t.AddDays(-100), TimeSpan.FromMinutes(60));
+        state.Upsert(newHist, t.AddDays(-30), TimeSpan.FromMinutes(60));
+        state.Upsert(active, t, TimeSpan.FromHours(1));
+        fw.AddIp(active);
+
+        var scheduler = new UnblockScheduler(
+            fw, state, _gate, NullLogger<UnblockScheduler>.Instance, historyRetentionDays: 90);
+        await scheduler.RunOnceAsync(t);
+
+        Assert.Null(state.TryGet(oldHist));
+        Assert.NotNull(state.TryGet(newHist));
+        Assert.NotNull(state.TryGet(active));
+
+        var reloaded = new StateStore(path);
+        reloaded.Load();
+        Assert.Null(reloaded.TryGet(oldHist));
+        Assert.NotNull(reloaded.TryGet(newHist));
+    }
+
+    [Fact]
+    public async Task RunOnceAsync_Skips_Prune_When_Retention_Is_Zero()
+    {
+        var state = NewState();
+        var fw = new InMemoryFirewallManager();
+        var t = new DateTime(2025, 1, 1, 12, 0, 0, DateTimeKind.Utc);
+
+        var ancient = IPAddress.Parse("203.0.113.1");
+        state.Upsert(ancient, t.AddYears(-5), TimeSpan.FromMinutes(5));
+
+        var scheduler = new UnblockScheduler(
+            fw, state, _gate, NullLogger<UnblockScheduler>.Instance, historyRetentionDays: 0);
+        await scheduler.RunOnceAsync(t);
+
+        Assert.NotNull(state.TryGet(ancient));
     }
 
     [Fact]

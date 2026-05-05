@@ -186,7 +186,7 @@ public static class CliDispatcher
             {
                 Console.Error.WriteLine("Usage: BlockRdpBruteForce config set <key> <value>");
                 Console.Error.WriteLine("  Keys: failure-threshold, sliding-window-minutes, block-duration-minutes,");
-                Console.Error.WriteLine("        firewall-scope, evaluate-nla-fallback");
+                Console.Error.WriteLine("        firewall-scope, evaluate-nla-fallback, history-retention-days");
                 return 64;
             }
             var key = args[2].ToLowerInvariant();
@@ -216,6 +216,11 @@ public static class CliDispatcher
                     if (!bool.TryParse(value, out var nla))
                         return Fail($"evaluate-nla-fallback must be true/false (got '{value}')");
                     payload.EvaluateNlaFallback = nla;
+                    break;
+                case "history-retention-days":
+                    if (!int.TryParse(value, out var hr))
+                        return Fail($"history-retention-days must be an integer (got '{value}')");
+                    payload.HistoryRetentionDays = hr;
                     break;
                 default:
                     return Fail($"unknown config key: {key}");
@@ -267,6 +272,7 @@ public static class CliDispatcher
         Console.WriteLine($"BlockDurationMinutes: {c.BlockDurationMinutes}{(c.BlockDurationMinutes <= 0 ? " (permanent)" : string.Empty)}");
         Console.WriteLine($"FirewallScope:        {c.FirewallScope}");
         Console.WriteLine($"EvaluateNlaFallback:  {c.EvaluateNlaFallback}");
+        Console.WriteLine($"HistoryRetentionDays: {c.HistoryRetentionDays}{(c.HistoryRetentionDays <= 0 ? " (keep forever)" : string.Empty)}");
         Console.WriteLine($"Whitelist:            {(c.Whitelist is { Count: > 0 } w ? string.Join(", ", w) : "(empty)")}");
     }
 
