@@ -22,11 +22,13 @@ public sealed class TrayContext : ApplicationContext
     private readonly ToolStripMenuItem _pauseItem;
     private readonly ToolStripMenuItem _resumeItem;
     private readonly ToolStripMenuItem _settingsItem;
+    private readonly ToolStripMenuItem _viewLogsItem;
     private readonly ToolStripMenuItem _openLogsItem;
     private readonly ToolStripMenuItem _restartAsAdminItem;
     private readonly ToolStripMenuItem _exitItem;
     private BlockedIpsForm? _openForm;
     private SettingsForm? _settingsForm;
+    private LogViewerForm? _logViewerForm;
 
     public TrayContext()
     {
@@ -38,6 +40,7 @@ public sealed class TrayContext : ApplicationContext
         _pauseItem = new ToolStripMenuItem($"Pause for {PauseMinutesDefault} minutes", null, OnPause);
         _resumeItem = new ToolStripMenuItem("Resume", null, OnResume) { Visible = false };
         _settingsItem = new ToolStripMenuItem("Settings...", null, OnSettings);
+        _viewLogsItem = new ToolStripMenuItem("View logs...", null, OnViewLogs);
         _openLogsItem = new ToolStripMenuItem("Open log folder", null, OnOpenLogs);
         _restartAsAdminItem = new ToolStripMenuItem("Restart as Administrator", null, OnRestartAsAdmin)
         {
@@ -51,6 +54,7 @@ public sealed class TrayContext : ApplicationContext
         menu.Items.Add(_resumeItem);
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(_settingsItem);
+        menu.Items.Add(_viewLogsItem);
         menu.Items.Add(_openLogsItem);
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(_restartAsAdminItem);
@@ -192,6 +196,21 @@ public sealed class TrayContext : ApplicationContext
         _settingsForm.Activate();
     }
 
+    private void OnViewLogs(object? sender, EventArgs e)
+    {
+        if (_logViewerForm is { IsDisposed: false })
+        {
+            _logViewerForm.BringToFront();
+            _logViewerForm.Activate();
+            return;
+        }
+
+        _logViewerForm = new LogViewerForm(_logFolder);
+        _logViewerForm.FormClosed += (_, _) => _logViewerForm = null;
+        _logViewerForm.Show();
+        _logViewerForm.Activate();
+    }
+
     private void OnRestartAsAdmin(object? sender, EventArgs e)
     {
         try
@@ -273,6 +292,7 @@ public sealed class TrayContext : ApplicationContext
             _icon.Dispose();
             _openForm?.Dispose();
             _settingsForm?.Dispose();
+            _logViewerForm?.Dispose();
         }
         base.Dispose(disposing);
     }
