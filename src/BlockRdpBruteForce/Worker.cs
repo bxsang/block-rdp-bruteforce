@@ -5,6 +5,7 @@ using BlockRdpBruteForce.Configuration;
 using BlockRdpBruteForce.Detection;
 using BlockRdpBruteForce.Eventing;
 using BlockRdpBruteForce.Firewall;
+using BlockRdpBruteForce.Geo;
 using BlockRdpBruteForce.Ipc;
 using BlockRdpBruteForce.State;
 using BlockRdpBruteForce.Unblocking;
@@ -18,6 +19,7 @@ public sealed class Worker : BackgroundService, IPipeOps
     private static readonly TimeSpan UnblockInterval = TimeSpan.FromMinutes(1);
 
     private readonly AppOptions _options;
+    private readonly IOptionsMonitor<AppOptions> _optionsMonitor;
     private readonly StateStore _state;
     private readonly IFirewallManager _firewall;
     private readonly FirewallRuleSync _sync;
@@ -28,12 +30,15 @@ public sealed class Worker : BackgroundService, IPipeOps
     private readonly FailureTracker _tracker;
     private WhitelistEvaluator _whitelist;
     private readonly SettingsWriter? _settings;
+    private readonly GeoLookup? _geo;
+    private readonly GeoRefreshService? _geoRefresh;
     private readonly Channel<FailedLogon> _channel;
     private readonly DateTime _startedUtc = DateTime.UtcNow;
     private long _pauseUntilUtcTicks;
 
     public Worker(
         IOptions<AppOptions> options,
+        IOptionsMonitor<AppOptions> optionsMonitor,
         StateStore state,
         IFirewallManager firewall,
         FirewallRuleSync sync,
@@ -41,9 +46,12 @@ public sealed class Worker : BackgroundService, IPipeOps
         SemaphoreSlim gate,
         ILoggerFactory loggerFactory,
         ILogger<Worker> log,
-        SettingsWriter? settings = null)
+        SettingsWriter? settings = null,
+        GeoLookup? geo = null,
+        GeoRefreshService? geoRefresh = null)
     {
         _options = options.Value;
+        _optionsMonitor = optionsMonitor;
         _state = state;
         _firewall = firewall;
         _sync = sync;
@@ -52,6 +60,8 @@ public sealed class Worker : BackgroundService, IPipeOps
         _loggerFactory = loggerFactory;
         _log = log;
         _settings = settings;
+        _geo = geo;
+        _geoRefresh = geoRefresh;
 
         _tracker = new FailureTracker(
             _options.FailureThreshold,
@@ -251,15 +261,32 @@ public sealed class Worker : BackgroundService, IPipeOps
     };
 
     public IReadOnlyList<IpEntry> GetList() => _state.Snapshot()
-        .Select(r => new IpEntry
+        .Select(r =>
         {
-            Ip = r.Ip,
-            Count = r.Count,
-            FirstSeenUtc = r.FirstSeenUtc,
-            LastSeenUtc = r.LastSeenUtc,
-            BlockedUntilUtc = r.BlockedUntilUtc,
+            var entry = new IpEntry
+            {
+                Ip = r.Ip,
+                Count = r.Count,
+                FirstSeenUtc = r.FirstSeenUtc,
+                LastSeenUtc = r.LastSeenUtc,
+                BlockedUntilUtc = r.BlockedUntilUtc,
+            };
+            EnrichGeo(entry);
+            return entry;
         })
         .ToList();
+
+    private void EnrichGeo(IpEntry entry)
+    {
+        if (_geo is null || !_geo.IsLoaded) return;
+        if (!_optionsMonitor.CurrentValue.GeoLookupEnabled) return;
+        if (!IPAddress.TryParse(entry.Ip, out var ip)) return;
+        var info = _geo.Lookup(ip);
+        if (info is null) return;
+        entry.CountryCode = info.CountryCode;
+        entry.Asn = info.Asn;
+        entry.AsName = info.AsName;
+    }
 
     public async Task<UnblockPayload> UnblockAsync(IPAddress ip, CancellationToken ct)
     {
@@ -338,5 +365,21 @@ public sealed class Worker : BackgroundService, IPipeOps
         _log.LogInformation(
             "Whitelist hot-applied (entries: {Old} -> {New})",
             prev?.EntryCount ?? 0, next.EntryCount);
+    }
+
+    public GeoStatusPayload GetGeoStatus()
+    {
+        if (_geoRefresh is null)
+        {
+            return new GeoStatusPayload { Enabled = false };
+        }
+        return _geoRefresh.GetStatus();
+    }
+
+    public Task<GeoStatusPayload> RefreshGeoAsync(CancellationToken ct)
+    {
+        if (_geoRefresh is null)
+            throw new InvalidOperationException("Geo refresh service not configured");
+        return _geoRefresh.RefreshNowAsync(ct);
     }
 }

@@ -81,6 +81,16 @@ public sealed class SettingsWriter
             if (payload.HistoryRetentionDays.HasValue && payload.HistoryRetentionDays != _current.HistoryRetentionDays)
             { changedKeys.Add(nameof(ConfigPayload.HistoryRetentionDays)); restartRequired = true; }
 
+            if (payload.GeoLookupEnabled.HasValue && payload.GeoLookupEnabled != _current.GeoLookupEnabled)
+            { changedKeys.Add(nameof(ConfigPayload.GeoLookupEnabled)); hot.Add("geo"); }
+
+            if (payload.IpInfoToken is not null &&
+                !string.Equals(payload.IpInfoToken, _current.IpInfoToken, StringComparison.Ordinal))
+            { changedKeys.Add(nameof(ConfigPayload.IpInfoToken)); hot.Add("geo"); }
+
+            if (payload.GeoRefreshIntervalDays.HasValue && payload.GeoRefreshIntervalDays != _current.GeoRefreshIntervalDays)
+            { changedKeys.Add(nameof(ConfigPayload.GeoRefreshIntervalDays)); hot.Add("geo"); }
+
             if (payload.Whitelist is not null &&
                 !WhitelistEquals(NormalizeWhitelist(payload.Whitelist), _current.Whitelist ?? new()))
             { changedKeys.Add(nameof(ConfigPayload.Whitelist)); hot.Add("whitelist"); }
@@ -127,6 +137,10 @@ public sealed class SettingsWriter
             throw new ConfigValidationException("EvaluateNlaFallback must be a boolean");
         if (merged.HistoryRetentionDays is not int hr || hr < 0)
             throw new ConfigValidationException("HistoryRetentionDays must be >= 0 (0 = keep forever)");
+        if (merged.GeoLookupEnabled is null)
+            throw new ConfigValidationException("GeoLookupEnabled must be a boolean");
+        if (merged.GeoRefreshIntervalDays is not int gd || gd < 1 || gd > 30)
+            throw new ConfigValidationException("GeoRefreshIntervalDays must be in [1, 30]");
 
         var scope = merged.FirewallScope ?? string.Empty;
         if (!AllowedScopes.Contains(scope, StringComparer.Ordinal))
@@ -150,17 +164,20 @@ public sealed class SettingsWriter
 
     private static ConfigPayload Merge(ConfigPayload current, ConfigPayload payload) => new()
     {
-        FailureThreshold     = payload.FailureThreshold     ?? current.FailureThreshold,
-        SlidingWindowMinutes = payload.SlidingWindowMinutes ?? current.SlidingWindowMinutes,
-        BlockDurationMinutes = payload.BlockDurationMinutes ?? current.BlockDurationMinutes,
-        Whitelist            = payload.Whitelist is null
-                                ? current.Whitelist?.ToList() ?? new()
-                                : NormalizeWhitelist(payload.Whitelist),
-        FirewallScope        = payload.FirewallScope is null
-                                ? current.FirewallScope
-                                : NormalizeScope(payload.FirewallScope),
-        EvaluateNlaFallback  = payload.EvaluateNlaFallback  ?? current.EvaluateNlaFallback,
-        HistoryRetentionDays = payload.HistoryRetentionDays ?? current.HistoryRetentionDays,
+        FailureThreshold       = payload.FailureThreshold     ?? current.FailureThreshold,
+        SlidingWindowMinutes   = payload.SlidingWindowMinutes ?? current.SlidingWindowMinutes,
+        BlockDurationMinutes   = payload.BlockDurationMinutes ?? current.BlockDurationMinutes,
+        Whitelist              = payload.Whitelist is null
+                                  ? current.Whitelist?.ToList() ?? new()
+                                  : NormalizeWhitelist(payload.Whitelist),
+        FirewallScope          = payload.FirewallScope is null
+                                  ? current.FirewallScope
+                                  : NormalizeScope(payload.FirewallScope),
+        EvaluateNlaFallback    = payload.EvaluateNlaFallback    ?? current.EvaluateNlaFallback,
+        HistoryRetentionDays   = payload.HistoryRetentionDays   ?? current.HistoryRetentionDays,
+        GeoLookupEnabled       = payload.GeoLookupEnabled       ?? current.GeoLookupEnabled,
+        IpInfoToken            = payload.IpInfoToken            ?? current.IpInfoToken,
+        GeoRefreshIntervalDays = payload.GeoRefreshIntervalDays ?? current.GeoRefreshIntervalDays,
     };
 
     private static List<string> NormalizeWhitelist(IEnumerable<string> entries)
@@ -212,12 +229,15 @@ public sealed class SettingsWriter
         // may have added (e.g., a Logging override).
         var section = new JsonObject
         {
-            [nameof(AppOptions.FailureThreshold)]     = candidate.FailureThreshold!.Value,
-            [nameof(AppOptions.SlidingWindowMinutes)] = candidate.SlidingWindowMinutes!.Value,
-            [nameof(AppOptions.BlockDurationMinutes)] = candidate.BlockDurationMinutes!.Value,
-            [nameof(AppOptions.FirewallScope)]        = candidate.FirewallScope,
-            [nameof(AppOptions.EvaluateNlaFallback)]  = candidate.EvaluateNlaFallback!.Value,
-            [nameof(AppOptions.HistoryRetentionDays)] = candidate.HistoryRetentionDays!.Value,
+            [nameof(AppOptions.FailureThreshold)]       = candidate.FailureThreshold!.Value,
+            [nameof(AppOptions.SlidingWindowMinutes)]   = candidate.SlidingWindowMinutes!.Value,
+            [nameof(AppOptions.BlockDurationMinutes)]   = candidate.BlockDurationMinutes!.Value,
+            [nameof(AppOptions.FirewallScope)]          = candidate.FirewallScope,
+            [nameof(AppOptions.EvaluateNlaFallback)]    = candidate.EvaluateNlaFallback!.Value,
+            [nameof(AppOptions.HistoryRetentionDays)]   = candidate.HistoryRetentionDays!.Value,
+            [nameof(AppOptions.GeoLookupEnabled)]       = candidate.GeoLookupEnabled!.Value,
+            [nameof(AppOptions.IpInfoToken)]            = candidate.IpInfoToken ?? string.Empty,
+            [nameof(AppOptions.GeoRefreshIntervalDays)] = candidate.GeoRefreshIntervalDays!.Value,
         };
         var arr = new JsonArray();
         foreach (var w in candidate.Whitelist ?? new()) arr.Add(w);
@@ -260,6 +280,9 @@ public sealed class SettingsWriter
         FirewallScope = src.FirewallScope,
         EvaluateNlaFallback = src.EvaluateNlaFallback,
         HistoryRetentionDays = src.HistoryRetentionDays,
+        GeoLookupEnabled = src.GeoLookupEnabled,
+        IpInfoToken = src.IpInfoToken,
+        GeoRefreshIntervalDays = src.GeoRefreshIntervalDays,
     };
 
     private static ConfigPayload SnapshotFrom(IOptions<AppOptions> initial)
@@ -275,6 +298,9 @@ public sealed class SettingsWriter
             FirewallScope = src.FirewallScope,
             EvaluateNlaFallback = src.EvaluateNlaFallback,
             HistoryRetentionDays = src.HistoryRetentionDays,
+            GeoLookupEnabled = src.GeoLookupEnabled,
+            IpInfoToken = src.IpInfoToken,
+            GeoRefreshIntervalDays = src.GeoRefreshIntervalDays,
         };
     }
 

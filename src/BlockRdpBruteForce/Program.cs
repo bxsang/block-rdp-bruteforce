@@ -3,6 +3,7 @@ using BlockRdpBruteForce;
 using BlockRdpBruteForce.Cli;
 using BlockRdpBruteForce.Configuration;
 using BlockRdpBruteForce.Firewall;
+using BlockRdpBruteForce.Geo;
 using BlockRdpBruteForce.Ipc;
 using BlockRdpBruteForce.Logging;
 using BlockRdpBruteForce.State;
@@ -52,7 +53,18 @@ static int RunService(string[] args)
         sp.GetRequiredService<IOptions<AppOptions>>().Value.HistoryRetentionDays));
     builder.Services.AddSingleton<SettingsWriter>();
 
+    builder.Services.AddHttpClient("GeoDownloader", client =>
+    {
+        client.Timeout = TimeSpan.FromMinutes(5);
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("BlockRdpBruteForce/1.x");
+    });
+
 #pragma warning disable CA1416 // RunService is gated on OperatingSystem.IsWindows() at the call site
+    builder.Services.AddSingleton<GeoLookup>();
+    builder.Services.AddSingleton<GeoDownloader>();
+    builder.Services.AddSingleton<GeoRefreshService>();
+    builder.Services.AddHostedService(sp => sp.GetRequiredService<GeoRefreshService>());
+
     builder.Services.AddSingleton<Worker>();
     builder.Services.AddHostedService(sp => sp.GetRequiredService<Worker>());
     builder.Services.AddSingleton<IPipeOps>(sp => sp.GetRequiredService<Worker>());

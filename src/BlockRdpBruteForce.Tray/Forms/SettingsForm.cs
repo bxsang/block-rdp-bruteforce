@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Runtime.Versioning;
 using BlockRdpBruteForce.Detection;
 using BlockRdpBruteForce.Ipc;
@@ -23,6 +24,12 @@ public sealed class SettingsForm : Form
     private readonly Button _closeButton;
     private readonly Label _statusLabel;
 
+    private readonly CheckBox _geoEnabled;
+    private readonly TextBox _geoToken;
+    private readonly NumericUpDown _geoInterval;
+    private readonly Button _geoRefresh;
+    private readonly Label _geoStatus;
+
     private ConfigPayload? _loaded;
 
     public SettingsForm(PipeClient client)
@@ -30,17 +37,17 @@ public sealed class SettingsForm : Form
         _client = client;
 
         Text = "BlockRdpBruteForce — Settings";
-        Width = 580;
-        Height = 540;
+        Width = 600;
+        Height = 740;
         StartPosition = FormStartPosition.CenterScreen;
-        MinimumSize = new Size(520, 480);
+        MinimumSize = new Size(540, 640);
         FormBorderStyle = FormBorderStyle.Sizable;
 
         var layout = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
             ColumnCount = 2,
-            RowCount = 7,
+            RowCount = 8,
             Padding = new Padding(12),
             AutoSize = false,
         };
@@ -49,6 +56,7 @@ public sealed class SettingsForm : Form
         for (var i = 0; i < 6; i++)
             layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
         _failureThreshold = NewSpinner(1, 1000);
         _slidingWindow = NewSpinner(1, 1440);
@@ -119,6 +127,45 @@ public sealed class SettingsForm : Form
         _addWhitelist.Click += (_, _) => OnAddWhitelist();
         _removeWhitelist.Click += async (_, _) => await OnRemoveWhitelistAsync();
 
+        _geoEnabled = new CheckBox
+        {
+            Text = "Enable IP geolocation (Country / ASN / Org columns)",
+            AutoSize = true,
+            Anchor = AnchorStyles.Left,
+        };
+        _geoToken = new TextBox
+        {
+            UseSystemPasswordChar = true,
+            Anchor = AnchorStyles.Left | AnchorStyles.Right,
+        };
+        _geoInterval = new NumericUpDown
+        {
+            Minimum = 1,
+            Maximum = 30,
+            Anchor = AnchorStyles.Left,
+            Width = 80,
+        };
+        _geoRefresh = new Button
+        {
+            Text = "Refresh now",
+            AutoSize = true,
+            Anchor = AnchorStyles.Left,
+        };
+        _geoRefresh.Click += async (_, _) => await OnGeoRefreshAsync();
+        _geoStatus = new Label
+        {
+            Text = "Status: not loaded",
+            AutoSize = false,
+            Dock = DockStyle.Fill,
+            TextAlign = ContentAlignment.MiddleLeft,
+            AutoEllipsis = true,
+            Height = 36,
+        };
+
+        var geoGroup = BuildGeoGroup();
+        layout.Controls.Add(geoGroup, 0, 7);
+        layout.SetColumnSpan(geoGroup, 2);
+
         var bottom = new TableLayoutPanel
         {
             Dock = DockStyle.Bottom,
@@ -178,6 +225,75 @@ public sealed class SettingsForm : Form
         host.Controls.Add(control, 1, row);
     }
 
+    private GroupBox BuildGeoGroup()
+    {
+        var group = new GroupBox
+        {
+            Text = "IP Geolocation (IPinfo Lite — CC BY-SA 4.0)",
+            Dock = DockStyle.Fill,
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+        };
+
+        var inner = new TableLayoutPanel
+        {
+            Dock = DockStyle.Top,
+            ColumnCount = 3,
+            RowCount = 5,
+            Padding = new Padding(8),
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+        };
+        inner.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 180));
+        inner.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        inner.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        for (var i = 0; i < 5; i++)
+            inner.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+
+        // Row 0: enable checkbox spans columns
+        inner.Controls.Add(_geoEnabled, 0, 0);
+        inner.SetColumnSpan(_geoEnabled, 3);
+
+        // Row 1: token + link
+        inner.Controls.Add(NewLabel("IPinfo token:"), 0, 1);
+        inner.Controls.Add(_geoToken, 1, 1);
+        var link = new LinkLabel
+        {
+            Text = "Get a free token",
+            AutoSize = true,
+            Anchor = AnchorStyles.Left,
+            Margin = new Padding(8, 4, 0, 0),
+        };
+        link.LinkClicked += (_, _) => OpenUrl("https://ipinfo.io/lite");
+        inner.Controls.Add(link, 2, 1);
+
+        // Row 2: interval
+        inner.Controls.Add(NewLabel("Refresh every (days):"), 0, 2);
+        inner.Controls.Add(_geoInterval, 1, 2);
+
+        // Row 3: refresh button + status
+        inner.Controls.Add(_geoRefresh, 0, 3);
+        inner.Controls.Add(_geoStatus, 1, 3);
+        inner.SetColumnSpan(_geoStatus, 2);
+
+        group.Controls.Add(inner);
+        return group;
+    }
+
+    private static Label NewLabel(string text) => new()
+    {
+        Text = text,
+        TextAlign = ContentAlignment.MiddleLeft,
+        Dock = DockStyle.Fill,
+        AutoEllipsis = true,
+    };
+
+    private static void OpenUrl(string url)
+    {
+        try { Process.Start(new ProcessStartInfo(url) { UseShellExecute = true }); }
+        catch { }
+    }
+
     private async Task ReloadAsync()
     {
         try
@@ -199,6 +315,12 @@ public sealed class SettingsForm : Form
             foreach (var w in c.Whitelist ?? new List<string>())
                 _whitelistBox.Items.Add(w);
 
+            _geoEnabled.Checked = c.GeoLookupEnabled ?? false;
+            _geoToken.Text = c.IpInfoToken ?? string.Empty;
+            _geoInterval.Value = Clamp(c.GeoRefreshIntervalDays ?? 7, _geoInterval);
+
+            await UpdateGeoStatusAsync();
+
             _statusLabel.Text = "Loaded.";
         }
         catch (InvalidOperationException ex)
@@ -211,11 +333,66 @@ public sealed class SettingsForm : Form
         }
     }
 
+    private async Task UpdateGeoStatusAsync()
+    {
+        try
+        {
+            var status = await _client.GeoStatusAsync();
+            _geoStatus.Text = FormatGeoStatus(status);
+        }
+        catch (Exception ex)
+        {
+            _geoStatus.Text = $"Status unavailable: {ex.Message}";
+        }
+    }
+
+    private static string FormatGeoStatus(GeoStatusPayload s)
+    {
+        if (!s.DbPresent)
+        {
+            if (!s.TokenConfigured) return "No token configured. Paste a token, click Apply, then Refresh now.";
+            if (!string.IsNullOrEmpty(s.LastError)) return $"Not downloaded yet — last error: {s.LastError}";
+            return "Database not downloaded yet. Click Refresh now.";
+        }
+
+        var mb = s.DbBytes / 1024.0 / 1024.0;
+        var modText = s.DbModifiedUtc?.ToLocalTime().ToString("yyyy-MM-dd") ?? "?";
+        var refreshedText = s.LastRefreshUtc?.ToLocalTime().ToString("yyyy-MM-dd HH:mm") ?? "never";
+        var line = $"DB date: {modText} · {mb:0.0} MB · last refreshed: {refreshedText}";
+        if (!string.IsNullOrEmpty(s.LastError))
+            line += $" · last error: {s.LastError}";
+        return line;
+    }
+
+    private async Task OnGeoRefreshAsync()
+    {
+        try
+        {
+            _geoRefresh.Enabled = false;
+            _geoStatus.Text = "Refreshing…";
+            var status = await _client.GeoRefreshAsync();
+            _geoStatus.Text = FormatGeoStatus(status);
+        }
+        catch (InvalidOperationException ex)
+        {
+            ShowAdminError("Could not refresh geo DB", ex);
+        }
+        catch (Exception ex)
+        {
+            _geoStatus.Text = $"Error: {ex.Message}";
+        }
+        finally
+        {
+            _geoRefresh.Enabled = true;
+        }
+    }
+
     private static decimal Clamp(int value, NumericUpDown control)
     {
-        if (value < control.Minimum) return control.Minimum;
-        if (value > control.Maximum) return control.Maximum;
-        return value;
+        decimal v = value;
+        if (v < control.Minimum) return control.Minimum;
+        if (v > control.Maximum) return control.Maximum;
+        return v;
     }
 
     private async Task ApplyAsync()
@@ -229,6 +406,9 @@ public sealed class SettingsForm : Form
         var hr = (int)_historyRetention.Value;
         var scope = _firewallScope.SelectedItem as string ?? "AllPorts";
         var nla = _evaluateNla.Checked;
+        var geoOn = _geoEnabled.Checked;
+        var geoToken = _geoToken.Text;
+        var geoIntv = (int)_geoInterval.Value;
 
         if (ft != _loaded.FailureThreshold) payload.FailureThreshold = ft;
         if (sw != _loaded.SlidingWindowMinutes) payload.SlidingWindowMinutes = sw;
@@ -236,13 +416,20 @@ public sealed class SettingsForm : Form
         if (hr != _loaded.HistoryRetentionDays) payload.HistoryRetentionDays = hr;
         if (!string.Equals(scope, _loaded.FirewallScope, StringComparison.Ordinal)) payload.FirewallScope = scope;
         if (nla != _loaded.EvaluateNlaFallback) payload.EvaluateNlaFallback = nla;
+        if (geoOn != _loaded.GeoLookupEnabled) payload.GeoLookupEnabled = geoOn;
+        if (!string.Equals(geoToken, _loaded.IpInfoToken ?? string.Empty, StringComparison.Ordinal))
+            payload.IpInfoToken = geoToken;
+        if (geoIntv != _loaded.GeoRefreshIntervalDays) payload.GeoRefreshIntervalDays = geoIntv;
 
         if (payload.FailureThreshold is null
             && payload.SlidingWindowMinutes is null
             && payload.BlockDurationMinutes is null
             && payload.HistoryRetentionDays is null
             && payload.FirewallScope is null
-            && payload.EvaluateNlaFallback is null)
+            && payload.EvaluateNlaFallback is null
+            && payload.GeoLookupEnabled is null
+            && payload.IpInfoToken is null
+            && payload.GeoRefreshIntervalDays is null)
         {
             _statusLabel.Text = "No changes to apply.";
             return;
@@ -254,6 +441,7 @@ public sealed class SettingsForm : Form
             var result = await _client.ConfigSetAsync(payload);
             _loaded = result.Effective;
             ShowResult(result);
+            await UpdateGeoStatusAsync();
         }
         catch (InvalidOperationException ex)
         {

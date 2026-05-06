@@ -114,7 +114,11 @@ the override wins.
     "LogPath":       "%ProgramData%\\BlockRdpBruteForce\\logs\\service-.log",
     "MaxRemoteAddressesPerRule": 1000,
     "EvaluateNlaFallback": true,
-    "PipeName": "BlockRdpBruteForce"
+    "PipeName": "BlockRdpBruteForce",
+    "GeoLookupEnabled": false,
+    "IpInfoToken": "",
+    "GeoRefreshIntervalDays": 7,
+    "GeoDataPath": "%ProgramData%\\BlockRdpBruteForce\\geo"
   }
 }
 ```
@@ -128,6 +132,9 @@ the override wins.
 | `FirewallScope` | `AllPorts` (block IP entirely) or `RdpOnly` (port 3389) |
 | `MaxRemoteAddressesPerRule` | Past this size the rule is sharded into `-2`, `-3`, … siblings |
 | `EvaluateNlaFallback` | Enables the RdpCoreTS event-140 subscription |
+| `GeoLookupEnabled` | Show country / ASN / org for blocked IPs (off by default) |
+| `IpInfoToken` | Free token from [ipinfo.io/lite](https://ipinfo.io/lite) — required for geo lookup |
+| `GeoRefreshIntervalDays` | How often to redownload the IPinfo Lite MMDB (default 7, range 1–30) |
 
 Edits to `Whitelist` take effect immediately when applied via the CLI/tray
 (`config set`, `whitelist add/remove`, or the **Settings…** dialog). Other
@@ -171,12 +178,23 @@ commands and `config get/set` require Administrators-group membership.
 `BlockRdpBruteForce.Tray.exe` is a WinForms `NotifyIcon` that polls service
 status every few seconds and offers:
 
-- "Show blocked IPs…" — sortable dialog with manual unblock
+- "Show blocked IPs…" — sortable dialog with manual unblock; if geolocation is
+  enabled, also shows country / ASN / org for each IP
 - "Pause for 1 hour" / "Resume"
 - "Settings…" — edit thresholds, window, block duration, firewall scope,
-  whitelist, and NLA fallback (admin only; whitelist takes effect
-  immediately, other changes prompt for a restart)
+  whitelist, NLA fallback, and IP geolocation (admin only; whitelist and geo
+  settings take effect immediately, other changes prompt for a restart)
 - "Open log folder"
+
+### IP geolocation (optional)
+
+Geolocation is **off by default**. To enable, paste a free token from
+[ipinfo.io/lite](https://ipinfo.io/lite) into Settings → IP Geolocation,
+check "Enable", click Apply, then click "Refresh now". The service downloads
+the IPinfo Lite MMDB (~40 MB) to `%ProgramData%\BlockRdpBruteForce\geo\` and
+auto-refreshes weekly. Lookups are local — no per-IP traffic to a third
+party. The token is stored in `%ProgramData%\BlockRdpBruteForce\appsettings.json`
+(default ProgramData ACLs apply: Administrators read/write, Users read).
 
 Install with `-RegisterTrayAutostart` to launch it at logon, or run it manually
 from the install directory.
@@ -261,6 +279,14 @@ by default** — pass `-KeepState` to preserve it for a later reinstall.
 - **IPv6 traffic.** v4 and v6 are kept in separate sibling rules
   (`BlockRDPBruteForce-v4`, `-v6`) because the firewall's `RemoteAddresses`
   CSV doesn't mix families cleanly.
+
+## Acknowledgements
+
+Optional IP geolocation uses the [IPinfo Lite](https://ipinfo.io/lite)
+database, licensed under [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/).
+The .mmdb file is not redistributed with this project — it is downloaded
+on demand from IPinfo when the admin enables the feature and provides a
+free token.
 
 ## License
 

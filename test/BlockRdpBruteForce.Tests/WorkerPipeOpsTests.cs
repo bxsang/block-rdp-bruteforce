@@ -54,11 +54,15 @@ public sealed class WorkerPipeOpsTests : IDisposable
             FirewallScope = options.Value.FirewallScope,
             EvaluateNlaFallback = options.Value.EvaluateNlaFallback,
             HistoryRetentionDays = options.Value.HistoryRetentionDays,
+            GeoLookupEnabled = options.Value.GeoLookupEnabled,
+            IpInfoToken = options.Value.IpInfoToken,
+            GeoRefreshIntervalDays = options.Value.GeoRefreshIntervalDays,
         };
         var settings = new SettingsWriter(initialPayload, settingsPath, NullLogger<SettingsWriter>.Instance);
 
         _worker = new Worker(
             options,
+            new StaticOptionsMonitor<AppOptions>(options.Value),
             _state,
             _firewall,
             sync,
@@ -67,6 +71,15 @@ public sealed class WorkerPipeOpsTests : IDisposable
             NullLoggerFactory.Instance,
             NullLogger<Worker>.Instance,
             settings);
+    }
+
+    private sealed class StaticOptionsMonitor<T> : IOptionsMonitor<T>
+        where T : class
+    {
+        public StaticOptionsMonitor(T value) { CurrentValue = value; }
+        public T CurrentValue { get; }
+        public T Get(string? name) => CurrentValue;
+        public IDisposable? OnChange(Action<T, string?> listener) => null;
     }
 
     public void Dispose()

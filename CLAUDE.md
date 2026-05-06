@@ -119,6 +119,10 @@ counts, paused-until ticks, tracker) without re-resolving DI per request.
 - `bookmark-security.xml`, `bookmark-rdpcorets.xml` — `EventBookmark`s so the
   service replays from the last processed event after a restart
 - `logs\service-*.log` — Serilog rolling daily files
+- `geo\ipinfo_lite.mmdb` — optional IPinfo Lite database (~40 MB, downloaded
+  on demand by `GeoRefreshService` when `GeoLookupEnabled=true`)
+- `geo\geo-meta.json` — last-refresh timestamp + last-error tracking, so
+  `geo-status` doesn't have to stat the .mmdb on every call
 
 `FirewallRuleSync` runs at startup and reconciles `state.json` against the
 actual firewall rule contents — handles the case where the rule was edited
@@ -138,20 +142,29 @@ Settings live under the `BlockRdp:` section (see `AppOptions.SectionName`).
 When adding a new option, add it to `Configuration\AppOptions.cs`, the shipped
 `src\BlockRdpBruteForce\appsettings.json`, and the README config table.
 
-Six settings are also writable at runtime through the pipe — `FailureThreshold`,
-`SlidingWindowMinutes`, `BlockDurationMinutes`, `Whitelist`, `FirewallScope`,
-`EvaluateNlaFallback`. The verbs are `config-get`, `config-set`,
-`whitelist-add`, `whitelist-remove`; `Configuration\SettingsWriter.cs` merges
-into the override JSON atomically (tmp + `File.Move`) and preserves any
-unmanaged keys an admin added by hand. The same self-lockout invariant from
-`Install.ps1` (empty whitelist + threshold < 3) is enforced server-side.
+Nine settings are also writable at runtime through the pipe —
+`FailureThreshold`, `SlidingWindowMinutes`, `BlockDurationMinutes`,
+`Whitelist`, `FirewallScope`, `EvaluateNlaFallback`, `GeoLookupEnabled`,
+`IpInfoToken`, `GeoRefreshIntervalDays`. The verbs are `config-get`,
+`config-set`, `whitelist-add`, `whitelist-remove`;
+`Configuration\SettingsWriter.cs` merges into the override JSON atomically
+(tmp + `File.Move`) and preserves any unmanaged keys an admin added by hand.
+The same self-lockout invariant from `Install.ps1` (empty whitelist +
+threshold < 3) is enforced server-side.
 
-`reloadOnChange: true` is still inert because consumers cache `IOptions.Value`
-in their constructors. **Whitelist** is the one exception: `Worker._whitelist`
-is a swappable `WhitelistEvaluator` (Volatile.Read in the consumer,
-Interlocked.Exchange in `ApplyWhitelistHot`) so whitelist edits take effect
-without a restart. All other five settings still require
-`Restart-Service BlockRdpBruteForce` to pick up.
+`reloadOnChange: true` is still inert for most consumers because they cache
+`IOptions.Value` in their constructors. The exceptions:
+
+- **Whitelist** — `Worker._whitelist` is a swappable `WhitelistEvaluator`
+  (Volatile.Read in the consumer, Interlocked.Exchange in
+  `ApplyWhitelistHot`) so whitelist edits take effect without a restart.
+- **Geo settings** — `GeoRefreshService` and `Worker.EnrichGeo` both read
+  `IOptionsMonitor<AppOptions>.CurrentValue`, so toggling
+  `GeoLookupEnabled`, updating `IpInfoToken`, or changing
+  `GeoRefreshIntervalDays` is hot. The on-demand `geo-refresh` verb honors
+  the new token immediately.
+
+All other settings still require `Restart-Service BlockRdpBruteForce`.
 
 ### Windows-only attribute discipline
 
@@ -161,6 +174,26 @@ targets `net10.0-windows` because of WinForms. Don't drop the platform
 annotations when adding new files that touch firewall, event log, registry,
 or pipe-ACL APIs — analyzer warnings are gated on them and `Program.cs`
 suppresses CA1416 only inside `RunService`.
+
+### Optional IP geolocation (off by default)
+
+`Geo\GeoRefreshService.cs` is a hosted service that, when
+`GeoLookupEnabled=true`, downloads the IPinfo Lite MMDB to
+`%ProgramData%\BlockRdpBruteForce\geo\ipinfo_lite.mmdb` once a week
+(`GeoRefreshIntervalDays`, range 1–30). It uses `IHttpClientFactory` (named
+client `GeoDownloader`) and writes via `.tmp` + `File.Move`, then asks
+`GeoLookup` to swap in a new `MaxMind.Db.Reader` (Apache-2.0,
+`MemoryMapped` mode, thread-safe). The reader swap is the same hot-swap
+pattern as `Worker._whitelist` (Interlocked.Exchange).
+
+`Worker.GetList` enriches every `IpEntry` with `CountryCode`, `Asn`,
+`AsName` if `IOptionsMonitor.CurrentValue.GeoLookupEnabled` is true and the
+DB is loaded — null fields otherwise (no error). Pipe verbs are
+`geo-status` (read-only, anyone) and `geo-refresh` (admin-only). Token is
+stored alongside other settings in the override `appsettings.json`; default
+ProgramData ACLs apply (Admins read/write, Users read). The .mmdb is **not**
+redistributed with the MSI/installer — license is CC BY-SA 4.0; attribution
+lives in README and SettingsForm group title.
 
 ### Self-lockout guard
 

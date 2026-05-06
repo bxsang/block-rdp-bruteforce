@@ -14,6 +14,8 @@ public static class PipeOps
     public const string ConfigSet = "config-set";
     public const string WhitelistAdd = "whitelist-add";
     public const string WhitelistRemove = "whitelist-remove";
+    public const string GeoStatus = "geo-status";
+    public const string GeoRefresh = "geo-refresh";
 }
 
 public sealed class PipeRequest
@@ -35,6 +37,7 @@ public sealed class PipeResponse
     public PausePayload? Pause { get; set; }
     public ConfigPayload? ConfigEffective { get; set; }
     public ConfigSetResult? ConfigSet { get; set; }
+    public GeoStatusPayload? GeoStatus { get; set; }
 
     public static PipeResponse Failure(string message) => new() { Ok = false, Error = message };
 }
@@ -48,6 +51,9 @@ public sealed class ConfigPayload
     public string? FirewallScope { get; set; }
     public bool? EvaluateNlaFallback { get; set; }
     public int? HistoryRetentionDays { get; set; }
+    public bool? GeoLookupEnabled { get; set; }
+    public string? IpInfoToken { get; set; }
+    public int? GeoRefreshIntervalDays { get; set; }
 }
 
 public sealed class ConfigSetResult
@@ -80,6 +86,23 @@ public sealed class IpEntry
     public DateTime FirstSeenUtc { get; set; }
     public DateTime LastSeenUtc { get; set; }
     public DateTime? BlockedUntilUtc { get; set; }
+    public string? CountryCode { get; set; }
+    public string? Asn { get; set; }
+    public string? AsName { get; set; }
+}
+
+public sealed class GeoStatusPayload
+{
+    public bool Enabled { get; set; }
+    public bool TokenConfigured { get; set; }
+    public bool DbPresent { get; set; }
+    public long DbBytes { get; set; }
+    public DateTime? DbModifiedUtc { get; set; }
+    public DateTime? LastRefreshUtc { get; set; }
+    public DateTime? LastErrorUtc { get; set; }
+    public string? LastError { get; set; }
+    public int IntervalDays { get; set; }
+    public bool RefreshInProgress { get; set; }
 }
 
 public sealed class UnblockPayload

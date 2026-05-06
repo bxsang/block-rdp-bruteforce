@@ -29,6 +29,9 @@ public sealed class SettingsWriterTests : IDisposable
             FirewallScope = "AllPorts",
             EvaluateNlaFallback = true,
             HistoryRetentionDays = 90,
+            GeoLookupEnabled = false,
+            IpInfoToken = string.Empty,
+            GeoRefreshIntervalDays = 7,
         };
         _writer = new SettingsWriter(initial, _path, NullLogger<SettingsWriter>.Instance);
     }
@@ -231,5 +234,45 @@ public sealed class SettingsWriterTests : IDisposable
         Assert.False(result.RestartRequired);
         Assert.Empty(result.AppliedHot);
         Assert.False(File.Exists(_path));
+    }
+
+    [Fact]
+    public void Apply_geo_enabled_change_is_hot_no_restart()
+    {
+        var result = _writer.Apply(new ConfigPayload { GeoLookupEnabled = true }, "test");
+
+        Assert.False(result.RestartRequired);
+        Assert.Contains("geo", result.AppliedHot);
+        Assert.True(result.Effective.GeoLookupEnabled);
+        var json = JsonNode.Parse(File.ReadAllText(_path))!;
+        Assert.True(json["BlockRdp"]!["GeoLookupEnabled"]!.GetValue<bool>());
+    }
+
+    [Fact]
+    public void Apply_geo_token_change_is_hot_no_restart()
+    {
+        var result = _writer.Apply(new ConfigPayload { IpInfoToken = "abc123" }, "test");
+
+        Assert.False(result.RestartRequired);
+        Assert.Contains("geo", result.AppliedHot);
+        Assert.Equal("abc123", result.Effective.IpInfoToken);
+        var json = JsonNode.Parse(File.ReadAllText(_path))!;
+        Assert.Equal("abc123", json["BlockRdp"]!["IpInfoToken"]!.GetValue<string>());
+    }
+
+    [Fact]
+    public void Apply_geo_interval_change_writes_file()
+    {
+        var result = _writer.Apply(new ConfigPayload { GeoRefreshIntervalDays = 14 }, "test");
+        Assert.Equal(14, result.Effective.GeoRefreshIntervalDays);
+    }
+
+    [Fact]
+    public void Validate_rejects_geo_interval_out_of_range()
+    {
+        Assert.Throws<ConfigValidationException>(() => _writer.Apply(
+            new ConfigPayload { GeoRefreshIntervalDays = 0 }, "test"));
+        Assert.Throws<ConfigValidationException>(() => _writer.Apply(
+            new ConfigPayload { GeoRefreshIntervalDays = 31 }, "test"));
     }
 }

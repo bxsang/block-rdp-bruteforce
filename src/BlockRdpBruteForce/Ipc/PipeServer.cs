@@ -232,6 +232,23 @@ public sealed class PipeServer : BackgroundService
                 }
             }
 
+            case PipeOps.GeoStatus:
+                return new PipeResponse { Ok = true, GeoStatus = ops.GetGeoStatus() };
+
+            case PipeOps.GeoRefresh:
+            {
+                if (!RequireAdmin(pipe)) return PipeResponse.Failure("administrator required");
+                try
+                {
+                    var status = await ops.RefreshGeoAsync(ct).ConfigureAwait(false);
+                    return new PipeResponse { Ok = true, GeoStatus = status };
+                }
+                catch (InvalidOperationException ex)
+                {
+                    return PipeResponse.Failure(ex.Message);
+                }
+            }
+
             default:
                 return PipeResponse.Failure($"unknown op: {request.Op}");
         }

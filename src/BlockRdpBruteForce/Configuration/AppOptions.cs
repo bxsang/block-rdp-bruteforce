@@ -16,4 +16,8 @@ public sealed class AppOptions
     public bool EvaluateNlaFallback { get; set; } = true;
     public int HistoryRetentionDays { get; set; } = 90;
     public string PipeName { get; set; } = "BlockRdpBruteForce";
+    public bool GeoLookupEnabled { get; set; } = false;
+    public string IpInfoToken { get; set; } = string.Empty;
+    public int GeoRefreshIntervalDays { get; set; } = 7;
+    public string GeoDataPath { get; set; } = @"%ProgramData%\BlockRdpBruteForce\geo";
 }

@@ -11,4 +11,6 @@ public interface IPipeOps
     PausePayload Resume();
     ConfigPayload GetConfig();
     ConfigSetResult SetConfig(ConfigPayload payload, string callerName);
+    GeoStatusPayload GetGeoStatus();
+    Task<GeoStatusPayload> RefreshGeoAsync(CancellationToken ct);
 }

@@ -20,10 +20,10 @@ public sealed class BlockedIpsForm : Form
         _client = client;
 
         Text = "BlockRdpBruteForce — Blocked IPs";
-        Width = 760;
+        Width = 1040;
         Height = 460;
         StartPosition = FormStartPosition.CenterScreen;
-        MinimumSize = new Size(540, 320);
+        MinimumSize = new Size(640, 320);
 
         _grid = new DataGridView
         {
@@ -38,10 +38,13 @@ public sealed class BlockedIpsForm : Form
             BackgroundColor = SystemColors.Window,
         };
         _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "Ip", HeaderText = "IP", SortMode = DataGridViewColumnSortMode.Automatic });
-        _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "Count", HeaderText = "Times blocked", SortMode = DataGridViewColumnSortMode.Automatic, DefaultCellStyle = new DataGridViewCellStyle { Alignment = DataGridViewContentAlignment.MiddleRight } });
-        _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "FirstSeen", HeaderText = "First seen", SortMode = DataGridViewColumnSortMode.Automatic });
-        _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "LastSeen", HeaderText = "Last seen", SortMode = DataGridViewColumnSortMode.Automatic });
-        _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "BlockedUntil", HeaderText = "Expires", SortMode = DataGridViewColumnSortMode.Automatic });
+        _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "Country", HeaderText = "Country", SortMode = DataGridViewColumnSortMode.Automatic, FillWeight = 50 });
+        _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "Asn", HeaderText = "ASN", SortMode = DataGridViewColumnSortMode.Automatic, FillWeight = 70 });
+        _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "AsName", HeaderText = "Org", SortMode = DataGridViewColumnSortMode.Automatic, FillWeight = 130 });
+        _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "Count", HeaderText = "Times blocked", SortMode = DataGridViewColumnSortMode.Automatic, FillWeight = 60, DefaultCellStyle = new DataGridViewCellStyle { Alignment = DataGridViewContentAlignment.MiddleRight } });
+        _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "FirstSeen", HeaderText = "First seen", SortMode = DataGridViewColumnSortMode.Automatic, FillWeight = 110 });
+        _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "LastSeen", HeaderText = "Last seen", SortMode = DataGridViewColumnSortMode.Automatic, FillWeight = 110 });
+        _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "BlockedUntil", HeaderText = "Expires", SortMode = DataGridViewColumnSortMode.Automatic, FillWeight = 110 });
 
         var contextMenu = new ContextMenuStrip();
         var copyIpItem = new ToolStripMenuItem("Copy IP", null, (_, _) => CopySelectedIp())
@@ -136,6 +139,9 @@ public sealed class BlockedIpsForm : Form
 
                 var rowIndex = _grid.Rows.Add(
                     e.Ip,
+                    e.CountryCode ?? string.Empty,
+                    e.Asn ?? string.Empty,
+                    e.AsName ?? string.Empty,
                     e.Count.ToString(),
                     e.FirstSeenUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"),
                     e.LastSeenUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"),

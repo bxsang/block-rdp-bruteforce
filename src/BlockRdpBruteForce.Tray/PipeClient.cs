@@ -57,6 +57,16 @@ public sealed class PipeClient
             new PipeRequest { Op = PipeOps.WhitelistRemove, Cidr = cidr },
             r => r.ConfigSet!, ct);
 
+    public Task<GeoStatusPayload> GeoStatusAsync(CancellationToken ct = default) =>
+        InvokeAsync(
+            new PipeRequest { Op = PipeOps.GeoStatus },
+            r => r.GeoStatus!, ct);
+
+    public Task<GeoStatusPayload> GeoRefreshAsync(CancellationToken ct = default) =>
+        InvokeAsync(
+            new PipeRequest { Op = PipeOps.GeoRefresh },
+            r => r.GeoStatus!, ct);
+
     private async Task<T> InvokeAsync<T>(PipeRequest request, Func<PipeResponse, T> select, CancellationToken ct)
     {
         await using var client = new NamedPipeClientStream(
