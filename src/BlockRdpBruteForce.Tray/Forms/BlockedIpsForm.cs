@@ -1,4 +1,5 @@
 using System.Net;
+using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using BlockRdpBruteForce.Ipc;
 
@@ -41,6 +42,31 @@ public sealed class BlockedIpsForm : Form
         _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "FirstSeen", HeaderText = "First seen", SortMode = DataGridViewColumnSortMode.Automatic });
         _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "LastSeen", HeaderText = "Last seen", SortMode = DataGridViewColumnSortMode.Automatic });
         _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "BlockedUntil", HeaderText = "Expires", SortMode = DataGridViewColumnSortMode.Automatic });
+
+        var contextMenu = new ContextMenuStrip();
+        var copyIpItem = new ToolStripMenuItem("Copy IP", null, (_, _) => CopySelectedIp())
+        {
+            ShortcutKeyDisplayString = "Ctrl+C",
+        };
+        contextMenu.Items.Add(copyIpItem);
+        _grid.ContextMenuStrip = contextMenu;
+        _grid.CellMouseDown += (_, e) =>
+        {
+            if (e.Button == MouseButtons.Right && e.RowIndex >= 0)
+            {
+                _grid.ClearSelection();
+                _grid.Rows[e.RowIndex].Selected = true;
+            }
+        };
+        _grid.KeyDown += (_, e) =>
+        {
+            if (e.Control && e.KeyCode == Keys.C)
+            {
+                CopySelectedIp();
+                e.Handled = true;
+                e.SuppressKeyPress = true;
+            }
+        };
 
         var bottom = new TableLayoutPanel
         {
@@ -126,6 +152,23 @@ public sealed class BlockedIpsForm : Form
         catch (Exception ex)
         {
             _statusLabel.Text = $"Error: {ex.Message}";
+        }
+    }
+
+    private void CopySelectedIp()
+    {
+        if (_grid.SelectedRows.Count == 0) return;
+        var ipText = _grid.SelectedRows[0].Cells["Ip"].Value?.ToString();
+        if (string.IsNullOrWhiteSpace(ipText)) return;
+
+        try
+        {
+            Clipboard.SetText(ipText);
+            _statusLabel.Text = $"Copied {ipText}";
+        }
+        catch (ExternalException)
+        {
+            _statusLabel.Text = "Clipboard unavailable, try again.";
         }
     }
 
