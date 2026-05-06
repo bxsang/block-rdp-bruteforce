@@ -77,8 +77,8 @@ public static class CliDispatcher
 
         var s = response.Status;
         Console.WriteLine($"Service:         {s.ServiceName}");
-        Console.WriteLine($"Started (UTC):   {s.StartedUtc:yyyy-MM-dd HH:mm:ss}");
-        Console.WriteLine($"Now (UTC):       {s.NowUtc:yyyy-MM-dd HH:mm:ss}");
+        Console.WriteLine($"Started:         {s.StartedUtc.ToLocalTime():yyyy-MM-dd HH:mm:ss}");
+        Console.WriteLine($"Now:             {s.NowUtc.ToLocalTime():yyyy-MM-dd HH:mm:ss}");
         Console.WriteLine($"Threshold:       {s.FailureThreshold} failures in {s.SlidingWindowMinutes} min");
         Console.WriteLine($"Block duration:  {(s.BlockDurationMinutes <= 0 ? "permanent" : s.BlockDurationMinutes + " min")}");
         Console.WriteLine($"Firewall rule:   {s.FirewallRuleName}");
@@ -86,7 +86,7 @@ public static class CliDispatcher
         Console.WriteLine($"NLA fallback:    {(s.EvaluateNlaFallback ? "enabled" : "disabled")}");
         Console.WriteLine($"Blocked IPs:     {s.BlockedIpCount}");
         Console.WriteLine(s.PausedUntilUtc is { } until
-            ? $"Paused until:    {until:yyyy-MM-dd HH:mm:ss} UTC"
+            ? $"Paused until:    {until.ToLocalTime():yyyy-MM-dd HH:mm:ss}"
             : "Paused:          no");
         return 0;
     }
@@ -104,7 +104,7 @@ public static class CliDispatcher
         }
 
         var nowUtc = DateTime.UtcNow;
-        Console.WriteLine($"{"IP",-39}  {"Count",5}  {"First seen UTC",-19}  {"Last seen UTC",-19}  {"TTL",-12}");
+        Console.WriteLine($"{"IP",-39}  {"Count",5}  {"First seen",-19}  {"Last seen",-19}  {"TTL",-12}");
         Console.WriteLine(new string('-', 39 + 2 + 5 + 2 + 19 + 2 + 19 + 2 + 12));
         foreach (var item in response.Items.OrderBy(i => i.Ip, StringComparer.Ordinal))
         {
@@ -114,7 +114,7 @@ public static class CliDispatcher
                     ? "expired"
                     : FormatDuration(item.BlockedUntilUtc.Value - nowUtc);
             Console.WriteLine(
-                $"{item.Ip,-39}  {item.Count,5}  {item.FirstSeenUtc:yyyy-MM-dd HH:mm:ss}  {item.LastSeenUtc:yyyy-MM-dd HH:mm:ss}  {ttl,-12}");
+                $"{item.Ip,-39}  {item.Count,5}  {item.FirstSeenUtc.ToLocalTime():yyyy-MM-dd HH:mm:ss}  {item.LastSeenUtc.ToLocalTime():yyyy-MM-dd HH:mm:ss}  {ttl,-12}");
         }
         return 0;
     }
@@ -154,7 +154,7 @@ public static class CliDispatcher
             return ReportError(response, "pause failed");
 
         Console.WriteLine(response.Pause.PausedUntilUtc is { } until
-            ? $"Paused until {until:yyyy-MM-dd HH:mm:ss} UTC"
+            ? $"Paused until {until.ToLocalTime():yyyy-MM-dd HH:mm:ss}"
             : "Resumed.");
         return 0;
     }

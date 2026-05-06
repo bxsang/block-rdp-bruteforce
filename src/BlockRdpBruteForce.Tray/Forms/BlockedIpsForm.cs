@@ -38,9 +38,9 @@ public sealed class BlockedIpsForm : Form
         };
         _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "Ip", HeaderText = "IP", SortMode = DataGridViewColumnSortMode.Automatic });
         _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "Count", HeaderText = "Times blocked", SortMode = DataGridViewColumnSortMode.Automatic, DefaultCellStyle = new DataGridViewCellStyle { Alignment = DataGridViewContentAlignment.MiddleRight } });
-        _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "FirstSeen", HeaderText = "First seen (UTC)", SortMode = DataGridViewColumnSortMode.Automatic });
-        _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "LastSeen", HeaderText = "Last seen (UTC)", SortMode = DataGridViewColumnSortMode.Automatic });
-        _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "BlockedUntil", HeaderText = "Expires (UTC)", SortMode = DataGridViewColumnSortMode.Automatic });
+        _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "FirstSeen", HeaderText = "First seen", SortMode = DataGridViewColumnSortMode.Automatic });
+        _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "LastSeen", HeaderText = "Last seen", SortMode = DataGridViewColumnSortMode.Automatic });
+        _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "BlockedUntil", HeaderText = "Expires", SortMode = DataGridViewColumnSortMode.Automatic });
 
         var bottom = new TableLayoutPanel
         {
@@ -111,9 +111,9 @@ public sealed class BlockedIpsForm : Form
                 var rowIndex = _grid.Rows.Add(
                     e.Ip,
                     e.Count.ToString(),
-                    e.FirstSeenUtc.ToString("yyyy-MM-dd HH:mm:ss"),
-                    e.LastSeenUtc.ToString("yyyy-MM-dd HH:mm:ss"),
-                    e.BlockedUntilUtc?.ToString("yyyy-MM-dd HH:mm:ss") ?? "permanent");
+                    e.FirstSeenUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"),
+                    e.LastSeenUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"),
+                    e.BlockedUntilUtc?.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss") ?? "permanent");
 
                 if (!isActive)
                     _grid.Rows[rowIndex].DefaultCellStyle.ForeColor = SystemColors.GrayText;
