@@ -52,10 +52,10 @@ jobs:
         id: version
         shell: pwsh
         run: |
-          if ('${{ github.ref }}' -match '^refs/tags/v(.+)$') {
+          if ($env:GITHUB_REF -match '^refs/tags/v(.+)$') {
             $ver = $Matches[1]
           } else {
-            $latestTag = git describe --tags --abbrev=0 2>$null
+            $latestTag = git tag --sort=-version:refname | Select-Object -First 1
             if ($latestTag -match '^v(.+)$') {
               $ver = $Matches[1]
             } else {
@@ -91,11 +91,8 @@ jobs:
         id: version
         shell: pwsh
         run: |
-          if ('${{ github.ref }}' -match '^refs/tags/v(.+)$') {
-            $ver = $Matches[1]
-          } else {
-            $ver = '0.0.0'
-          }
+          $env:GITHUB_REF -match '^refs/tags/v(.+)$' | Out-Null
+          $ver = $Matches[1]
           "version=$ver" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
 
       - name: Download self-contained MSI
