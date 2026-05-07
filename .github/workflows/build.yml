@@ -53,12 +53,8 @@ jobs:
           if ($env:GITHUB_REF -match '^refs/tags/v(.+)$') {
             $ver = $Matches[1]
           } else {
-            $latestTag = git tag --sort=-version:refname | Select-Object -First 1
-            if ($latestTag -match '^v(.+)$') {
-              $ver = $Matches[1]
-            } else {
-              $ver = '0.0.0'
-            }
+            [xml]$csproj = Get-Content src/BlockRdpBruteForce/BlockRdpBruteForce.csproj
+            $ver = $csproj.Project.PropertyGroup.Version
           }
           "version=$ver" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
 
