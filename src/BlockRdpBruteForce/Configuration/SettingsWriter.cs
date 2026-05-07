@@ -91,6 +91,12 @@ public sealed class SettingsWriter
             if (payload.GeoRefreshIntervalDays.HasValue && payload.GeoRefreshIntervalDays != _current.GeoRefreshIntervalDays)
             { changedKeys.Add(nameof(ConfigPayload.GeoRefreshIntervalDays)); hot.Add("geo"); }
 
+            if (payload.AutoUpdateEnabled.HasValue && payload.AutoUpdateEnabled != _current.AutoUpdateEnabled)
+            { changedKeys.Add(nameof(ConfigPayload.AutoUpdateEnabled)); hot.Add("update"); }
+
+            if (payload.AutoUpdateCheckIntervalHours.HasValue && payload.AutoUpdateCheckIntervalHours != _current.AutoUpdateCheckIntervalHours)
+            { changedKeys.Add(nameof(ConfigPayload.AutoUpdateCheckIntervalHours)); hot.Add("update"); }
+
             if (payload.Whitelist is not null &&
                 !WhitelistEquals(NormalizeWhitelist(payload.Whitelist), _current.Whitelist ?? new()))
             { changedKeys.Add(nameof(ConfigPayload.Whitelist)); hot.Add("whitelist"); }
@@ -141,6 +147,10 @@ public sealed class SettingsWriter
             throw new ConfigValidationException("GeoLookupEnabled must be a boolean");
         if (merged.GeoRefreshIntervalDays is not int gd || gd < 1 || gd > 30)
             throw new ConfigValidationException("GeoRefreshIntervalDays must be in [1, 30]");
+        if (merged.AutoUpdateEnabled is null)
+            throw new ConfigValidationException("AutoUpdateEnabled must be a boolean");
+        if (merged.AutoUpdateCheckIntervalHours is not int aih || aih < 1 || aih > 168)
+            throw new ConfigValidationException("AutoUpdateCheckIntervalHours must be in [1, 168]");
 
         var scope = merged.FirewallScope ?? string.Empty;
         if (!AllowedScopes.Contains(scope, StringComparer.Ordinal))
@@ -178,6 +188,9 @@ public sealed class SettingsWriter
         GeoLookupEnabled       = payload.GeoLookupEnabled       ?? current.GeoLookupEnabled,
         IpInfoToken            = payload.IpInfoToken            ?? current.IpInfoToken,
         GeoRefreshIntervalDays = payload.GeoRefreshIntervalDays ?? current.GeoRefreshIntervalDays,
+        AutoUpdateEnabled      = payload.AutoUpdateEnabled      ?? current.AutoUpdateEnabled,
+        AutoUpdateCheckIntervalHours
+                               = payload.AutoUpdateCheckIntervalHours ?? current.AutoUpdateCheckIntervalHours,
     };
 
     private static List<string> NormalizeWhitelist(IEnumerable<string> entries)
@@ -238,6 +251,9 @@ public sealed class SettingsWriter
             [nameof(AppOptions.GeoLookupEnabled)]       = candidate.GeoLookupEnabled!.Value,
             [nameof(AppOptions.IpInfoToken)]            = candidate.IpInfoToken ?? string.Empty,
             [nameof(AppOptions.GeoRefreshIntervalDays)] = candidate.GeoRefreshIntervalDays!.Value,
+            [nameof(AppOptions.AutoUpdateEnabled)]      = candidate.AutoUpdateEnabled!.Value,
+            [nameof(AppOptions.AutoUpdateCheckIntervalHours)]
+                                                        = candidate.AutoUpdateCheckIntervalHours!.Value,
         };
         var arr = new JsonArray();
         foreach (var w in candidate.Whitelist ?? new()) arr.Add(w);
@@ -283,6 +299,8 @@ public sealed class SettingsWriter
         GeoLookupEnabled = src.GeoLookupEnabled,
         IpInfoToken = src.IpInfoToken,
         GeoRefreshIntervalDays = src.GeoRefreshIntervalDays,
+        AutoUpdateEnabled = src.AutoUpdateEnabled,
+        AutoUpdateCheckIntervalHours = src.AutoUpdateCheckIntervalHours,
     };
 
     private static ConfigPayload SnapshotFrom(IOptions<AppOptions> initial)
@@ -301,6 +319,8 @@ public sealed class SettingsWriter
             GeoLookupEnabled = src.GeoLookupEnabled,
             IpInfoToken = src.IpInfoToken,
             GeoRefreshIntervalDays = src.GeoRefreshIntervalDays,
+            AutoUpdateEnabled = src.AutoUpdateEnabled,
+            AutoUpdateCheckIntervalHours = src.AutoUpdateCheckIntervalHours,
         };
     }
 

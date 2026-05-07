@@ -13,4 +13,7 @@ public interface IPipeOps
     ConfigSetResult SetConfig(ConfigPayload payload, string callerName);
     GeoStatusPayload GetGeoStatus();
     Task<GeoStatusPayload> RefreshGeoAsync(CancellationToken ct);
+    UpdateStatusPayload GetUpdateStatus();
+    Task<UpdateStatusPayload> CheckForUpdateNowAsync(CancellationToken ct);
+    Task<UpdateApplyPayload> ApplyUpdateAsync(string requestedVersion, CancellationToken ct);
 }

@@ -30,6 +30,11 @@ public sealed class SettingsForm : Form
     private readonly Button _geoRefresh;
     private readonly Label _geoStatus;
 
+    private readonly CheckBox _updateEnabled;
+    private readonly NumericUpDown _updateInterval;
+    private readonly Button _updateCheckNow;
+    private readonly Label _updateStatus;
+
     private ConfigPayload? _loaded;
 
     public SettingsForm(PipeClient client)
@@ -38,16 +43,16 @@ public sealed class SettingsForm : Form
 
         Text = "BlockRdpBruteForce — Settings";
         Width = 600;
-        Height = 740;
+        Height = 820;
         StartPosition = FormStartPosition.CenterScreen;
-        MinimumSize = new Size(540, 640);
+        MinimumSize = new Size(540, 720);
         FormBorderStyle = FormBorderStyle.Sizable;
 
         var layout = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
             ColumnCount = 2,
-            RowCount = 8,
+            RowCount = 9,
             Padding = new Padding(12),
             AutoSize = false,
         };
@@ -56,6 +61,7 @@ public sealed class SettingsForm : Form
         for (var i = 0; i < 6; i++)
             layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
         _failureThreshold = NewSpinner(1, 1000);
@@ -165,6 +171,40 @@ public sealed class SettingsForm : Form
         var geoGroup = BuildGeoGroup();
         layout.Controls.Add(geoGroup, 0, 7);
         layout.SetColumnSpan(geoGroup, 2);
+
+        _updateEnabled = new CheckBox
+        {
+            Text = "Automatically check for new releases",
+            AutoSize = true,
+            Anchor = AnchorStyles.Left,
+        };
+        _updateInterval = new NumericUpDown
+        {
+            Minimum = 1,
+            Maximum = 168,
+            Anchor = AnchorStyles.Left,
+            Width = 80,
+        };
+        _updateCheckNow = new Button
+        {
+            Text = "Check now",
+            AutoSize = true,
+            Anchor = AnchorStyles.Left,
+        };
+        _updateCheckNow.Click += async (_, _) => await OnUpdateCheckNowAsync();
+        _updateStatus = new Label
+        {
+            Text = "Status: not checked yet",
+            AutoSize = false,
+            Dock = DockStyle.Fill,
+            TextAlign = ContentAlignment.MiddleLeft,
+            AutoEllipsis = true,
+            Height = 36,
+        };
+
+        var updateGroup = BuildUpdateGroup();
+        layout.Controls.Add(updateGroup, 0, 8);
+        layout.SetColumnSpan(updateGroup, 2);
 
         var bottom = new TableLayoutPanel
         {
@@ -280,6 +320,79 @@ public sealed class SettingsForm : Form
         return group;
     }
 
+    private GroupBox BuildUpdateGroup()
+    {
+        var group = new GroupBox
+        {
+            Text = "Auto-update (checks GitHub releases)",
+            Dock = DockStyle.Fill,
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+        };
+
+        var inner = new TableLayoutPanel
+        {
+            Dock = DockStyle.Top,
+            ColumnCount = 3,
+            RowCount = 4,
+            Padding = new Padding(8),
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+        };
+        inner.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 180));
+        inner.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        inner.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        for (var i = 0; i < 4; i++)
+            inner.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+
+        inner.Controls.Add(_updateEnabled, 0, 0);
+        inner.SetColumnSpan(_updateEnabled, 3);
+
+        inner.Controls.Add(NewLabel("Check every (hours):"), 0, 1);
+        inner.Controls.Add(_updateInterval, 1, 1);
+
+        inner.Controls.Add(_updateCheckNow, 0, 2);
+        inner.Controls.Add(_updateStatus, 1, 2);
+        inner.SetColumnSpan(_updateStatus, 2);
+
+        group.Controls.Add(inner);
+        return group;
+    }
+
+    private async Task OnUpdateCheckNowAsync()
+    {
+        try
+        {
+            _updateCheckNow.Enabled = false;
+            _updateStatus.Text = "Checking…";
+            var status = await _client.UpdateCheckNowAsync();
+            _updateStatus.Text = FormatUpdateStatus(status);
+        }
+        catch (Exception ex)
+        {
+            _updateStatus.Text = $"Error: {ex.Message}";
+        }
+        finally
+        {
+            _updateCheckNow.Enabled = true;
+        }
+    }
+
+    private static string FormatUpdateStatus(UpdateStatusPayload s)
+    {
+        var current = string.IsNullOrEmpty(s.CurrentVersion) ? "?" : s.CurrentVersion;
+        var lastChecked = s.LastCheckUtc?.ToLocalTime().ToString("yyyy-MM-dd HH:mm") ?? "never";
+
+        if (!string.IsNullOrEmpty(s.LastCheckError))
+            return $"Last check failed at {lastChecked}: {s.LastCheckError} (current {current})";
+
+        if (s.UpdateAvailable && !string.IsNullOrEmpty(s.LatestVersion))
+            return $"Update {s.LatestVersion} available (current {current}) — last checked {lastChecked}";
+
+        var latest = string.IsNullOrEmpty(s.LatestVersion) ? current : s.LatestVersion;
+        return $"You're on the latest version ({latest}) — last checked {lastChecked}";
+    }
+
     private static Label NewLabel(string text) => new()
     {
         Text = text,
@@ -319,7 +432,11 @@ public sealed class SettingsForm : Form
             _geoToken.Text = c.IpInfoToken ?? string.Empty;
             _geoInterval.Value = Clamp(c.GeoRefreshIntervalDays ?? 7, _geoInterval);
 
+            _updateEnabled.Checked = c.AutoUpdateEnabled ?? true;
+            _updateInterval.Value = Clamp(c.AutoUpdateCheckIntervalHours ?? 24, _updateInterval);
+
             await UpdateGeoStatusAsync();
+            await UpdateUpdateStatusAsync();
 
             _statusLabel.Text = "Loaded.";
         }
@@ -343,6 +460,19 @@ public sealed class SettingsForm : Form
         catch (Exception ex)
         {
             _geoStatus.Text = $"Status unavailable: {ex.Message}";
+        }
+    }
+
+    private async Task UpdateUpdateStatusAsync()
+    {
+        try
+        {
+            var status = await _client.UpdateStatusAsync();
+            _updateStatus.Text = FormatUpdateStatus(status);
+        }
+        catch (Exception ex)
+        {
+            _updateStatus.Text = $"Status unavailable: {ex.Message}";
         }
     }
 
@@ -421,6 +551,11 @@ public sealed class SettingsForm : Form
             payload.IpInfoToken = geoToken;
         if (geoIntv != _loaded.GeoRefreshIntervalDays) payload.GeoRefreshIntervalDays = geoIntv;
 
+        var autoUpd = _updateEnabled.Checked;
+        var autoIntv = (int)_updateInterval.Value;
+        if (autoUpd != _loaded.AutoUpdateEnabled) payload.AutoUpdateEnabled = autoUpd;
+        if (autoIntv != _loaded.AutoUpdateCheckIntervalHours) payload.AutoUpdateCheckIntervalHours = autoIntv;
+
         if (payload.FailureThreshold is null
             && payload.SlidingWindowMinutes is null
             && payload.BlockDurationMinutes is null
@@ -429,7 +564,9 @@ public sealed class SettingsForm : Form
             && payload.EvaluateNlaFallback is null
             && payload.GeoLookupEnabled is null
             && payload.IpInfoToken is null
-            && payload.GeoRefreshIntervalDays is null)
+            && payload.GeoRefreshIntervalDays is null
+            && payload.AutoUpdateEnabled is null
+            && payload.AutoUpdateCheckIntervalHours is null)
         {
             _statusLabel.Text = "No changes to apply.";
             return;
@@ -442,6 +579,7 @@ public sealed class SettingsForm : Form
             _loaded = result.Effective;
             ShowResult(result);
             await UpdateGeoStatusAsync();
+            await UpdateUpdateStatusAsync();
         }
         catch (InvalidOperationException ex)
         {

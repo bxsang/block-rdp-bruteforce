@@ -20,4 +20,9 @@ public sealed class AppOptions
     public string IpInfoToken { get; set; } = string.Empty;
     public int GeoRefreshIntervalDays { get; set; } = 7;
     public string GeoDataPath { get; set; } = @"%ProgramData%\BlockRdpBruteForce\geo";
+    public bool AutoUpdateEnabled { get; set; } = true;
+    public int AutoUpdateCheckIntervalHours { get; set; } = 24;
+    public string UpdateRepoOwner { get; set; } = "bxsang";
+    public string UpdateRepoName { get; set; } = "block-rdp-bruteforce";
+    public string UpdateDataPath { get; set; } = @"%ProgramData%\BlockRdpBruteForce\updates";
 }

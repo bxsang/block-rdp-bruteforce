@@ -249,6 +249,39 @@ public sealed class PipeServer : BackgroundService
                 }
             }
 
+            case PipeOps.UpdateStatus:
+                return new PipeResponse { Ok = true, UpdateStatus = ops.GetUpdateStatus() };
+
+            case PipeOps.UpdateCheckNow:
+            {
+                try
+                {
+                    var status = await ops.CheckForUpdateNowAsync(ct).ConfigureAwait(false);
+                    return new PipeResponse { Ok = true, UpdateStatus = status };
+                }
+                catch (InvalidOperationException ex)
+                {
+                    return PipeResponse.Failure(ex.Message);
+                }
+            }
+
+            case PipeOps.UpdateApply:
+            {
+                if (string.IsNullOrWhiteSpace(request.Version))
+                    return PipeResponse.Failure("version required");
+                try
+                {
+                    var apply = await ops.ApplyUpdateAsync(request.Version!, ct).ConfigureAwait(false);
+                    if (!apply.Started)
+                        return PipeResponse.Failure(apply.Message ?? "apply failed");
+                    return new PipeResponse { Ok = true, UpdateApply = apply };
+                }
+                catch (InvalidOperationException ex)
+                {
+                    return PipeResponse.Failure(ex.Message);
+                }
+            }
+
             default:
                 return PipeResponse.Failure($"unknown op: {request.Op}");
         }

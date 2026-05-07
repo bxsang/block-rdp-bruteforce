@@ -57,6 +57,8 @@ public sealed class WorkerPipeOpsTests : IDisposable
             GeoLookupEnabled = options.Value.GeoLookupEnabled,
             IpInfoToken = options.Value.IpInfoToken,
             GeoRefreshIntervalDays = options.Value.GeoRefreshIntervalDays,
+            AutoUpdateEnabled = options.Value.AutoUpdateEnabled,
+            AutoUpdateCheckIntervalHours = options.Value.AutoUpdateCheckIntervalHours,
         };
         var settings = new SettingsWriter(initialPayload, settingsPath, NullLogger<SettingsWriter>.Instance);
 

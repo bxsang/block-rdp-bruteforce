@@ -9,6 +9,7 @@ using BlockRdpBruteForce.Geo;
 using BlockRdpBruteForce.Ipc;
 using BlockRdpBruteForce.State;
 using BlockRdpBruteForce.Unblocking;
+using BlockRdpBruteForce.Update;
 using Microsoft.Extensions.Options;
 
 namespace BlockRdpBruteForce;
@@ -32,6 +33,10 @@ public sealed class Worker : BackgroundService, IPipeOps
     private readonly SettingsWriter? _settings;
     private readonly GeoLookup? _geo;
     private readonly GeoRefreshService? _geoRefresh;
+    private readonly UpdateChecker? _updateChecker;
+    private readonly UpdateApplier? _updateApplier;
+    private readonly UpdateStateStore? _updateStore;
+    private readonly InstalledVariantDetector? _variantDetector;
     private readonly Channel<FailedLogon> _channel;
     private readonly DateTime _startedUtc = DateTime.UtcNow;
     private long _pauseUntilUtcTicks;
@@ -48,7 +53,11 @@ public sealed class Worker : BackgroundService, IPipeOps
         ILogger<Worker> log,
         SettingsWriter? settings = null,
         GeoLookup? geo = null,
-        GeoRefreshService? geoRefresh = null)
+        GeoRefreshService? geoRefresh = null,
+        UpdateChecker? updateChecker = null,
+        UpdateApplier? updateApplier = null,
+        UpdateStateStore? updateStore = null,
+        InstalledVariantDetector? variantDetector = null)
     {
         _options = options.Value;
         _optionsMonitor = optionsMonitor;
@@ -62,6 +71,10 @@ public sealed class Worker : BackgroundService, IPipeOps
         _settings = settings;
         _geo = geo;
         _geoRefresh = geoRefresh;
+        _updateChecker = updateChecker;
+        _updateApplier = updateApplier;
+        _updateStore = updateStore;
+        _variantDetector = variantDetector;
 
         _tracker = new FailureTracker(
             _options.FailureThreshold,
@@ -381,5 +394,65 @@ public sealed class Worker : BackgroundService, IPipeOps
         if (_geoRefresh is null)
             throw new InvalidOperationException("Geo refresh service not configured");
         return _geoRefresh.RefreshNowAsync(ct);
+    }
+
+    public UpdateStatusPayload GetUpdateStatus() => BuildUpdateStatus(_updateStore?.Get());
+
+    public async Task<UpdateStatusPayload> CheckForUpdateNowAsync(CancellationToken ct)
+    {
+        if (_updateChecker is null)
+            throw new InvalidOperationException("Update checker not configured");
+        var record = await _updateChecker.CheckNowAsync(ct).ConfigureAwait(false);
+        return BuildUpdateStatus(record);
+    }
+
+    public async Task<UpdateApplyPayload> ApplyUpdateAsync(string requestedVersion, CancellationToken ct)
+    {
+        if (_updateApplier is null)
+            throw new InvalidOperationException("Update applier not configured");
+        var result = await _updateApplier.ApplyAsync(requestedVersion, ct).ConfigureAwait(false);
+        return new UpdateApplyPayload
+        {
+            Started = result.Ok,
+            Message = result.Ok ? result.Message : result.Error,
+        };
+    }
+
+    private UpdateStatusPayload BuildUpdateStatus(UpdateStateRecord? record)
+    {
+        var opts = _optionsMonitor.CurrentValue;
+        record ??= new UpdateStateRecord();
+
+        var current = _variantDetector?.CurrentVersionString ?? "0.0.0";
+        var available = false;
+        if (!string.IsNullOrWhiteSpace(record.LatestVersion) &&
+            _variantDetector is not null &&
+            UpdateChecker.TryParseVersion(record.LatestVersion, out var latestVer))
+        {
+            available = latestVer > _variantDetector.CurrentVersion;
+        }
+
+        var msiPath = record.MsiDownloadedPath;
+        var msiPresent = !string.IsNullOrEmpty(msiPath) && File.Exists(msiPath);
+
+        return new UpdateStatusPayload
+        {
+            AutoUpdateEnabled = opts.AutoUpdateEnabled,
+            CheckIntervalHours = opts.AutoUpdateCheckIntervalHours,
+            CurrentVersion = current,
+            LatestVersion = record.LatestVersion,
+            LatestReleaseUrl = record.LatestReleaseUrl,
+            MsiAssetName = record.MsiAssetName,
+            MsiDownloaded = msiPresent,
+            LastCheckUtc = record.LastCheckUtc,
+            LastCheckErrorUtc = record.LastCheckErrorUtc,
+            LastCheckError = record.LastCheckError,
+            LastApplyAttemptUtc = record.LastApplyAttemptUtc,
+            LastAppliedVersion = record.LastAppliedVersion,
+            LastAppliedUtc = record.LastAppliedUtc,
+            LastApplyError = record.LastApplyError,
+            UpdateAvailable = available,
+            Variant = _variantDetector?.Variant.ToString() ?? "Unknown",
+        };
     }
 }

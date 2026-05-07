@@ -67,6 +67,21 @@ public sealed class PipeClient
             new PipeRequest { Op = PipeOps.GeoRefresh },
             r => r.GeoStatus!, ct);
 
+    public Task<UpdateStatusPayload> UpdateStatusAsync(CancellationToken ct = default) =>
+        InvokeAsync(
+            new PipeRequest { Op = PipeOps.UpdateStatus },
+            r => r.UpdateStatus!, ct);
+
+    public Task<UpdateStatusPayload> UpdateCheckNowAsync(CancellationToken ct = default) =>
+        InvokeAsync(
+            new PipeRequest { Op = PipeOps.UpdateCheckNow },
+            r => r.UpdateStatus!, ct);
+
+    public Task<UpdateApplyPayload> UpdateApplyAsync(string version, CancellationToken ct = default) =>
+        InvokeAsync(
+            new PipeRequest { Op = PipeOps.UpdateApply, Version = version },
+            r => r.UpdateApply!, ct);
+
     private async Task<T> InvokeAsync<T>(PipeRequest request, Func<PipeResponse, T> select, CancellationToken ct)
     {
         await using var client = new NamedPipeClientStream(

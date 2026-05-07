@@ -16,6 +16,9 @@ public static class PipeOps
     public const string WhitelistRemove = "whitelist-remove";
     public const string GeoStatus = "geo-status";
     public const string GeoRefresh = "geo-refresh";
+    public const string UpdateStatus = "update-status";
+    public const string UpdateCheckNow = "update-check-now";
+    public const string UpdateApply = "update-apply";
 }
 
 public sealed class PipeRequest
@@ -25,6 +28,7 @@ public sealed class PipeRequest
     public int? PauseMinutes { get; set; }
     public ConfigPayload? Config { get; set; }
     public string? Cidr { get; set; }
+    public string? Version { get; set; }
 }
 
 public sealed class PipeResponse
@@ -38,6 +42,8 @@ public sealed class PipeResponse
     public ConfigPayload? ConfigEffective { get; set; }
     public ConfigSetResult? ConfigSet { get; set; }
     public GeoStatusPayload? GeoStatus { get; set; }
+    public UpdateStatusPayload? UpdateStatus { get; set; }
+    public UpdateApplyPayload? UpdateApply { get; set; }
 
     public static PipeResponse Failure(string message) => new() { Ok = false, Error = message };
 }
@@ -54,6 +60,8 @@ public sealed class ConfigPayload
     public bool? GeoLookupEnabled { get; set; }
     public string? IpInfoToken { get; set; }
     public int? GeoRefreshIntervalDays { get; set; }
+    public bool? AutoUpdateEnabled { get; set; }
+    public int? AutoUpdateCheckIntervalHours { get; set; }
 }
 
 public sealed class ConfigSetResult
@@ -103,6 +111,32 @@ public sealed class GeoStatusPayload
     public string? LastError { get; set; }
     public int IntervalDays { get; set; }
     public bool RefreshInProgress { get; set; }
+}
+
+public sealed class UpdateStatusPayload
+{
+    public bool AutoUpdateEnabled { get; set; }
+    public int CheckIntervalHours { get; set; }
+    public string CurrentVersion { get; set; } = string.Empty;
+    public string? LatestVersion { get; set; }
+    public string? LatestReleaseUrl { get; set; }
+    public string? MsiAssetName { get; set; }
+    public bool MsiDownloaded { get; set; }
+    public DateTime? LastCheckUtc { get; set; }
+    public DateTime? LastCheckErrorUtc { get; set; }
+    public string? LastCheckError { get; set; }
+    public DateTime? LastApplyAttemptUtc { get; set; }
+    public string? LastAppliedVersion { get; set; }
+    public DateTime? LastAppliedUtc { get; set; }
+    public string? LastApplyError { get; set; }
+    public bool UpdateAvailable { get; set; }
+    public string Variant { get; set; } = string.Empty;
+}
+
+public sealed class UpdateApplyPayload
+{
+    public bool Started { get; set; }
+    public string? Message { get; set; }
 }
 
 public sealed class UnblockPayload

@@ -118,7 +118,12 @@ the override wins.
     "GeoLookupEnabled": false,
     "IpInfoToken": "",
     "GeoRefreshIntervalDays": 7,
-    "GeoDataPath": "%ProgramData%\\BlockRdpBruteForce\\geo"
+    "GeoDataPath": "%ProgramData%\\BlockRdpBruteForce\\geo",
+    "AutoUpdateEnabled": true,
+    "AutoUpdateCheckIntervalHours": 24,
+    "UpdateRepoOwner": "bxsang",
+    "UpdateRepoName": "block-rdp-bruteforce",
+    "UpdateDataPath": "%ProgramData%\\BlockRdpBruteForce\\updates"
   }
 }
 ```
@@ -135,6 +140,9 @@ the override wins.
 | `GeoLookupEnabled` | Show country / ASN / org for blocked IPs (off by default) |
 | `IpInfoToken` | Free token from [ipinfo.io/lite](https://ipinfo.io/lite) — required for geo lookup |
 | `GeoRefreshIntervalDays` | How often to redownload the IPinfo Lite MMDB (default 7, range 1–30) |
+| `AutoUpdateEnabled` | Periodically check GitHub releases for a newer version (default `true`) |
+| `AutoUpdateCheckIntervalHours` | How often to poll the releases API (default 24, range 1–168) |
+| `UpdateRepoOwner` / `UpdateRepoName` | GitHub `owner/repo` to query for releases |
 
 Edits to `Whitelist` take effect immediately when applied via the CLI/tray
 (`config set`, `whitelist add/remove`, or the **Settings…** dialog). Other
@@ -182,8 +190,10 @@ status every few seconds and offers:
   enabled, also shows country / ASN / org for each IP
 - "Pause for 1 hour" / "Resume"
 - "Settings…" — edit thresholds, window, block duration, firewall scope,
-  whitelist, NLA fallback, and IP geolocation (admin only; whitelist and geo
-  settings take effect immediately, other changes prompt for a restart)
+  whitelist, NLA fallback, IP geolocation, and auto-update (admin only;
+  whitelist and geo settings take effect immediately, other changes prompt
+  for a restart)
+- "Check for updates…" — query GitHub releases on demand
 - "Open log folder"
 
 ### IP geolocation (optional)
@@ -198,6 +208,39 @@ party. The token is stored in `%ProgramData%\BlockRdpBruteForce\appsettings.json
 
 Install with `-RegisterTrayAutostart` to launch it at logon, or run it manually
 from the install directory.
+
+### Auto-update (enabled by default)
+
+The service checks `https://api.github.com/repos/<UpdateRepoOwner>/<UpdateRepoName>/releases/latest`
+on the configured cadence (default 24h) and surfaces newer releases through
+the tray. Flow:
+
+1. Tray balloons "Update vX.Y.Z available — click to install" the first time
+   it sees a new version. A bold "Install update vX.Y.Z…" entry also appears
+   at the top of the tray context menu.
+2. Clicking either confirms via a small dialog. On Yes, the tray asks the
+   service (over the named pipe) to apply the update.
+3. The service ensures the matching MSI is downloaded into
+   `%ProgramData%\BlockRdpBruteForce\updates\`, writes a marker file, and
+   spawns `msiexec /passive /norestart` **into the active user session**
+   using the user's linked elevated token — Windows' standard MSI progress
+   dialog appears with no UAC prompt.
+4. The MSI's `MajorUpgrade` stops the service, replaces the binaries, and
+   restarts the service. On startup the new service notices the marker, logs
+   the apply, and re-launches the tray in the user's session.
+
+The MSI variant (self-contained vs framework-dependent) is auto-detected
+from the size of the installed service exe; no setting required. Verify
+status any time via the **Settings… → Auto-update** pane, the
+`update-status` pipe verb, or the
+`%ProgramData%\BlockRdpBruteForce\update-state.json` file.
+
+If no admin user is logged in, the service falls back to `msiexec /qn` in
+session 0 — no progress UI, but the upgrade still completes; the new tray
+appears at the next user logon via the HKLM Run entry.
+
+To opt out, uncheck "Automatically check for new releases" in Settings, or
+set `AutoUpdateEnabled` to `false` in the override JSON.
 
 ## Logs
 

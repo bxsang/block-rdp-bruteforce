@@ -32,6 +32,8 @@ public sealed class SettingsWriterTests : IDisposable
             GeoLookupEnabled = false,
             IpInfoToken = string.Empty,
             GeoRefreshIntervalDays = 7,
+            AutoUpdateEnabled = true,
+            AutoUpdateCheckIntervalHours = 24,
         };
         _writer = new SettingsWriter(initial, _path, NullLogger<SettingsWriter>.Instance);
     }

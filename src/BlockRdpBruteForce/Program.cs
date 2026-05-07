@@ -8,6 +8,7 @@ using BlockRdpBruteForce.Ipc;
 using BlockRdpBruteForce.Logging;
 using BlockRdpBruteForce.State;
 using BlockRdpBruteForce.Unblocking;
+using BlockRdpBruteForce.Update;
 using Microsoft.Extensions.Options;
 using Serilog;
 using Serilog.Events;
@@ -59,11 +60,27 @@ static int RunService(string[] args)
         client.DefaultRequestHeaders.UserAgent.ParseAdd("BlockRdpBruteForce/1.x");
     });
 
+    builder.Services.AddHttpClient(GitHubReleaseClient.HttpClientName, client =>
+    {
+        client.Timeout = TimeSpan.FromMinutes(5);
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("BlockRdpBruteForce-Updater/1.x");
+        client.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github+json");
+    });
+
 #pragma warning disable CA1416 // RunService is gated on OperatingSystem.IsWindows() at the call site
     builder.Services.AddSingleton<GeoLookup>();
     builder.Services.AddSingleton<GeoDownloader>();
     builder.Services.AddSingleton<GeoRefreshService>();
     builder.Services.AddHostedService(sp => sp.GetRequiredService<GeoRefreshService>());
+
+    builder.Services.AddSingleton<InstalledVariantDetector>();
+    builder.Services.AddSingleton<UpdateStateStore>();
+    builder.Services.AddSingleton<GitHubReleaseClient>();
+    builder.Services.AddSingleton<InteractiveProcessLauncher>();
+    builder.Services.AddSingleton<UpdateApplier>();
+    builder.Services.AddSingleton<UpdateChecker>();
+    builder.Services.AddHostedService(sp => sp.GetRequiredService<UpdateChecker>());
+    builder.Services.AddHostedService<UpdateApplyCompletionService>();
 
     builder.Services.AddSingleton<Worker>();
     builder.Services.AddHostedService(sp => sp.GetRequiredService<Worker>());
