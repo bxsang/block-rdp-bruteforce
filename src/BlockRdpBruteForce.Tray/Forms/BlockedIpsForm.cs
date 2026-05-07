@@ -38,6 +38,20 @@ public sealed class BlockedIpsForm : Form
             BackgroundColor = SystemColors.Window,
         };
         _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "Ip", HeaderText = "IP", SortMode = DataGridViewColumnSortMode.Automatic });
+        _grid.Columns.Add(new DataGridViewTextBoxColumn
+        {
+            Name = "Flag",
+            HeaderText = "",
+            Width = 36,
+            AutoSizeMode = DataGridViewAutoSizeColumnMode.None,
+            Resizable = DataGridViewTriState.False,
+            SortMode = DataGridViewColumnSortMode.NotSortable,
+            DefaultCellStyle = new DataGridViewCellStyle
+            {
+                Font = new Font("Segoe UI Emoji", 11f),
+                Alignment = DataGridViewContentAlignment.MiddleCenter,
+            },
+        });
         _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "Country", HeaderText = "Country", SortMode = DataGridViewColumnSortMode.Automatic, FillWeight = 50 });
         _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "Asn", HeaderText = "ASN", SortMode = DataGridViewColumnSortMode.Automatic, FillWeight = 70 });
         _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "AsName", HeaderText = "Org", SortMode = DataGridViewColumnSortMode.Automatic, FillWeight = 130 });
@@ -139,6 +153,7 @@ public sealed class BlockedIpsForm : Form
 
                 var rowIndex = _grid.Rows.Add(
                     e.Ip,
+                    CountryCodeToFlag(e.CountryCode),
                     e.CountryCode ?? string.Empty,
                     e.Asn ?? string.Empty,
                     e.AsName ?? string.Empty,
@@ -159,6 +174,15 @@ public sealed class BlockedIpsForm : Form
         {
             _statusLabel.Text = $"Error: {ex.Message}";
         }
+    }
+
+    private static string CountryCodeToFlag(string? code)
+    {
+        if (string.IsNullOrEmpty(code) || code.Length != 2) return string.Empty;
+        var c0 = char.ToUpperInvariant(code[0]);
+        var c1 = char.ToUpperInvariant(code[1]);
+        if (c0 < 'A' || c0 > 'Z' || c1 < 'A' || c1 > 'Z') return string.Empty;
+        return char.ConvertFromUtf32(0x1F1E6 + (c0 - 'A')) + char.ConvertFromUtf32(0x1F1E6 + (c1 - 'A'));
     }
 
     private void CopySelectedIp()
