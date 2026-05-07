@@ -33,7 +33,9 @@ public sealed class SettingsForm : Form
     private readonly CheckBox _updateEnabled;
     private readonly NumericUpDown _updateInterval;
     private readonly Button _updateCheckNow;
+    private readonly Button _updateInstall;
     private readonly Label _updateStatus;
+    private string? _availableUpdateVersion;
 
     private ConfigPayload? _loaded;
 
@@ -192,6 +194,16 @@ public sealed class SettingsForm : Form
             Anchor = AnchorStyles.Left,
         };
         _updateCheckNow.Click += async (_, _) => await OnUpdateCheckNowAsync();
+        _updateInstall = new Button
+        {
+            Text = "Install update",
+            AutoSize = true,
+            Anchor = AnchorStyles.Left,
+            Visible = false,
+            Font = new Font(SystemFonts.DefaultFont, FontStyle.Bold),
+            Margin = new Padding(8, 3, 3, 3),
+        };
+        _updateInstall.Click += async (_, _) => await OnInstallUpdateAsync();
         _updateStatus = new Label
         {
             Text = "Status: not checked yet",
@@ -351,9 +363,22 @@ public sealed class SettingsForm : Form
         inner.Controls.Add(NewLabel("Check every (hours):"), 0, 1);
         inner.Controls.Add(_updateInterval, 1, 1);
 
-        inner.Controls.Add(_updateCheckNow, 0, 2);
-        inner.Controls.Add(_updateStatus, 1, 2);
-        inner.SetColumnSpan(_updateStatus, 2);
+        var buttons = new FlowLayoutPanel
+        {
+            FlowDirection = FlowDirection.LeftToRight,
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            Anchor = AnchorStyles.Left,
+            Margin = Padding.Empty,
+            WrapContents = false,
+        };
+        buttons.Controls.Add(_updateCheckNow);
+        buttons.Controls.Add(_updateInstall);
+        inner.Controls.Add(buttons, 0, 2);
+        inner.SetColumnSpan(buttons, 3);
+
+        inner.Controls.Add(_updateStatus, 0, 3);
+        inner.SetColumnSpan(_updateStatus, 3);
 
         group.Controls.Add(inner);
         return group;
@@ -367,6 +392,7 @@ public sealed class SettingsForm : Form
             _updateStatus.Text = "Checking…";
             var status = await _client.UpdateCheckNowAsync();
             _updateStatus.Text = FormatUpdateStatus(status);
+            ApplyUpdateAvailability(status);
         }
         catch (Exception ex)
         {
@@ -375,6 +401,78 @@ public sealed class SettingsForm : Form
         finally
         {
             _updateCheckNow.Enabled = true;
+        }
+    }
+
+    private async Task OnInstallUpdateAsync()
+    {
+        var version = _availableUpdateVersion;
+        if (string.IsNullOrEmpty(version)) return;
+
+        var confirm = MessageBox.Show(
+            this,
+            $"Install BlockRdpBruteForce {version} now?\n\n" +
+            "The service will briefly restart, you'll see a Windows Installer progress " +
+            "dialog, and the tray will reappear automatically when the upgrade is done.",
+            "Install update",
+            MessageBoxButtons.YesNo,
+            MessageBoxIcon.Question,
+            MessageBoxDefaultButton.Button1);
+
+        if (confirm != DialogResult.Yes) return;
+
+        try
+        {
+            _updateInstall.Enabled = false;
+            _updateCheckNow.Enabled = false;
+            _updateStatus.Text = $"Installing {version}…";
+            var result = await _client.UpdateApplyAsync(version);
+            if (!result.Started)
+            {
+                MessageBox.Show(
+                    this,
+                    result.Message ?? "The service refused to start the update.",
+                    "Could not install update",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+                _updateStatus.Text = result.Message ?? "Update did not start.";
+                _updateInstall.Enabled = true;
+                _updateCheckNow.Enabled = true;
+                return;
+            }
+
+            // MSI will replace our exe — exit so it can.
+            await Task.Delay(1500);
+            Application.Exit();
+        }
+        catch (InvalidOperationException ex)
+        {
+            ShowAdminError("Could not install update", ex);
+            _updateInstall.Enabled = true;
+            _updateCheckNow.Enabled = true;
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, ex.Message, "Could not install update",
+                MessageBoxButtons.OK, MessageBoxIcon.Error);
+            _updateStatus.Text = $"Error: {ex.Message}";
+            _updateInstall.Enabled = true;
+            _updateCheckNow.Enabled = true;
+        }
+    }
+
+    private void ApplyUpdateAvailability(UpdateStatusPayload s)
+    {
+        if (s.UpdateAvailable && !string.IsNullOrEmpty(s.LatestVersion))
+        {
+            _availableUpdateVersion = s.LatestVersion;
+            _updateInstall.Text = $"Install update {s.LatestVersion}…";
+            _updateInstall.Visible = true;
+        }
+        else
+        {
+            _availableUpdateVersion = null;
+            _updateInstall.Visible = false;
         }
     }
 
@@ -469,6 +567,7 @@ public sealed class SettingsForm : Form
         {
             var status = await _client.UpdateStatusAsync();
             _updateStatus.Text = FormatUpdateStatus(status);
+            ApplyUpdateAvailability(status);
         }
         catch (Exception ex)
         {
