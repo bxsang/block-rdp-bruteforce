@@ -18,7 +18,8 @@
     <RepoRoot>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\'))</RepoRoot>
     <ServicePublishDir Condition="'$(ServicePublishDir)' == ''">$(RepoRoot)src\BlockRdpBruteForce\bin\$(Configuration)\net10.0\win-x64\publish\</ServicePublishDir>
     <TrayPublishDir    Condition="'$(TrayPublishDir)' == ''">$(RepoRoot)src\BlockRdpBruteForce.Tray\bin\$(Configuration)\net10.0-windows\win-x64\publish\</TrayPublishDir>
-    <DefineConstants>ServicePublishDir=$(ServicePublishDir);TrayPublishDir=$(TrayPublishDir)</DefineConstants>
+    <UpdaterPublishDir Condition="'$(UpdaterPublishDir)' == ''">$(RepoRoot)src\BlockRdpBruteForce.Updater\bin\$(Configuration)\net10.0-windows\win-x64\publish\</UpdaterPublishDir>
+    <DefineConstants>ServicePublishDir=$(ServicePublishDir);TrayPublishDir=$(TrayPublishDir);UpdaterPublishDir=$(UpdaterPublishDir)</DefineConstants>
   </PropertyGroup>
 
   <ItemGroup>
@@ -31,6 +32,8 @@
            Text="Service publish output not found at $(ServicePublishDir)BlockRdpBruteForce.exe. Run installer\build-installer.ps1 or 'dotnet publish src\BlockRdpBruteForce -c Release -r win-x64 --self-contained -p:PublishSingleFile=true' first." />
     <Error Condition="!Exists('$(TrayPublishDir)BlockRdpBruteForce.Tray.exe')"
            Text="Tray publish output not found at $(TrayPublishDir)BlockRdpBruteForce.Tray.exe. Run installer\build-installer.ps1 first." />
+    <Error Condition="!Exists('$(UpdaterPublishDir)BlockRdpBruteForce.Updater.exe')"
+           Text="Updater publish output not found at $(UpdaterPublishDir)BlockRdpBruteForce.Updater.exe. Run installer\build-installer.ps1 first." />
   </Target>
 
 </Project>

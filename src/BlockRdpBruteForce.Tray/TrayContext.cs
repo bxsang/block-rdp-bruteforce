@@ -424,8 +424,8 @@ public sealed class TrayContext : ApplicationContext
     {
         var confirm = MessageBox.Show(
             $"Install BlockRdpBruteForce {version} now?\n\n" +
-            "The service will briefly restart, you'll see a Windows Installer progress " +
-            "dialog, and the tray will reappear automatically when the upgrade is done.",
+            "A separate updater window will open with download and install progress. " +
+            "The service and tray will briefly restart, then the tray will reappear automatically.",
             "Install update",
             MessageBoxButtons.YesNo,
             MessageBoxIcon.Question,
@@ -437,11 +437,15 @@ public sealed class TrayContext : ApplicationContext
             return;
         }
 
+        // Disable the menu item immediately so a second click before exit can't double-trigger.
+        if (_installUpdateItem is not null) _installUpdateItem.Enabled = false;
+
         try
         {
             var result = await _client.UpdateApplyAsync(version);
             if (!result.Started)
             {
+                if (_installUpdateItem is not null) _installUpdateItem.Enabled = true;
                 MessageBox.Show(
                     result.Message ?? "The service refused to start the update.",
                     "Could not install update",
@@ -451,13 +455,14 @@ public sealed class TrayContext : ApplicationContext
             }
 
             SaveAckedVersion(version);
-            ShowBalloon("Updating", "Installing BlockRdpBruteForce — the tray will close shortly.");
+            ShowBalloon("Updating", "The updater window has opened — the tray will close shortly.");
             // Give the user the balloon, then exit so MSI can replace our exe.
             await Task.Delay(2000);
             ExitThread();
         }
         catch (Exception ex)
         {
+            if (_installUpdateItem is not null) _installUpdateItem.Enabled = true;
             MessageBox.Show(ex.Message, "Could not install update",
                 MessageBoxButtons.OK, MessageBoxIcon.Error);
         }

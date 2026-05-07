@@ -220,14 +220,20 @@ the tray. Flow:
    at the top of the tray context menu.
 2. Clicking either confirms via a small dialog. On Yes, the tray asks the
    service (over the named pipe) to apply the update.
-3. The service ensures the matching MSI is downloaded into
-   `%ProgramData%\BlockRdpBruteForce\updates\`, writes a marker file, and
-   spawns `msiexec /passive /norestart` **into the active user session**
-   using the user's linked elevated token — Windows' standard MSI progress
-   dialog appears with no UAC prompt.
+3. The service stages a copy of `BlockRdpBruteForce.Updater.exe` into
+   `%ProgramData%\BlockRdpBruteForce\updates\stage\` and launches it in the
+   active user session with the user's linked elevated token — no UAC prompt.
+   The updater opens its own progress window and:
+     - downloads the matching MSI (with a percentage / MB / MB-per-second
+       progress bar; cancellable),
+     - then runs `msiexec /quiet /norestart` and waits for it to finish,
+     - then shows a Success / Failure / Cancelled result with an "Open log"
+       button on failure pointing at the msiexec verbose log.
 4. The MSI's `MajorUpgrade` stops the service, replaces the binaries, and
    restarts the service. On startup the new service notices the marker, logs
-   the apply, and re-launches the tray in the user's session.
+   the apply, and re-launches the tray in the user's session. The updater
+   window stays open through the binary swap because it runs out of
+   ProgramData, not Program Files.
 
 The MSI variant (self-contained vs framework-dependent) is auto-detected
 from the size of the installed service exe; no setting required. Verify
@@ -235,9 +241,11 @@ status any time via the **Settings… → Auto-update** pane, the
 `update-status` pipe verb, or the
 `%ProgramData%\BlockRdpBruteForce\update-state.json` file.
 
-If no admin user is logged in, the service falls back to `msiexec /qn` in
-session 0 — no progress UI, but the upgrade still completes; the new tray
-appears at the next user logon via the HKLM Run entry.
+If no admin user is logged in (or the staged updater can't be found, e.g.
+on installs that pre-date the updater), the service falls back to
+`msiexec /qn` in session 0 — no progress UI, but the upgrade still
+completes; the new tray appears at the next user logon via the HKLM Run
+entry.
 
 To opt out, uncheck "Automatically check for new releases" in Settings, or
 set `AutoUpdateEnabled` to `false` in the override JSON.

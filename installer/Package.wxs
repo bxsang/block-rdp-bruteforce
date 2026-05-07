@@ -131,6 +131,16 @@
       </Component>
     </ComponentGroup>
 
+    <!-- Updater -->
+
+    <ComponentGroup Id="UpdaterComponents" Directory="INSTALLFOLDER">
+      <Component Id="UpdaterExe">
+        <File Id="UpdaterExeFile"
+              Source="$(UpdaterPublishDir)BlockRdpBruteForce.Updater.exe"
+              KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+
     <!--
       Tray autostart: uses HKLM Run (per-machine) so the tray starts for every
       interactive user that logs on. The original Install.ps1 uses HKCU Run,
@@ -194,6 +204,7 @@
              ConfigurableDirectory="INSTALLFOLDER">
       <ComponentGroupRef Id="ServiceComponents" />
       <ComponentGroupRef Id="StateFolderComponents" />
+      <ComponentGroupRef Id="UpdaterComponents" />
     </Feature>
 
     <Feature Id="TrayFeature"

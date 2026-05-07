@@ -81,6 +81,7 @@ Set-StrictMode -Version Latest
 $ServiceName    = 'BlockRdpBruteForce'
 $ServiceExe     = 'BlockRdpBruteForce.exe'
 $TrayExe        = 'BlockRdpBruteForce.Tray.exe'
+$UpdaterExe     = 'BlockRdpBruteForce.Updater.exe'
 $EventLogName   = 'Application'
 $EventLogSource = 'BlockRdpBruteForce'
 $ProgramDataDir = Join-Path $env:ProgramData 'BlockRdpBruteForce'
@@ -169,6 +170,13 @@ if ($Build) {
             -p:PublishSingleFile=true -o $trayPub | Out-Host
         if ($LASTEXITCODE -ne 0) { throw "dotnet publish (tray) failed." }
     }
+    Invoke-Step "Publishing updater to $PublishRoot\BlockRdpBruteForce.Updater" {
+        $updaterPub = Join-Path $PublishRoot 'BlockRdpBruteForce.Updater'
+        & dotnet publish (Join-Path $RepoRoot 'src\BlockRdpBruteForce.Updater') `
+            -c $Configuration -r $Runtime $selfContainedArg `
+            -p:PublishSingleFile=true -o $updaterPub | Out-Host
+        if ($LASTEXITCODE -ne 0) { throw "dotnet publish (updater) failed." }
+    }
 }
 
 # ---------------------------------------------------------------------------
@@ -194,6 +202,13 @@ if ($traySource) {
     Write-Host "  Tray source:       $traySource"
 } else {
     Write-Warning "  Tray source not found; service will install but tray will not be deployed."
+}
+
+$updaterSource = Find-LatestPublish 'BlockRdpBruteForce.Updater'
+if ($updaterSource) {
+    Write-Host "  Updater source:    $updaterSource"
+} else {
+    Write-Warning "  Updater source not found; auto-updates will fall back to the silent (no-UI) path."
 }
 
 # ---------------------------------------------------------------------------
@@ -341,6 +356,12 @@ Invoke-Step "Copying service files from $SourcePath" {
 if ($traySource) {
     Invoke-Step "Copying tray files from $traySource" {
         Copy-Item -Path (Join-Path $traySource '*') -Destination $InstallPath -Recurse -Force
+    }
+}
+
+if ($updaterSource) {
+    Invoke-Step "Copying updater files from $updaterSource" {
+        Copy-Item -Path (Join-Path $updaterSource '*') -Destination $InstallPath -Recurse -Force
     }
 }
 

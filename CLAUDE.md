@@ -29,8 +29,9 @@ dotnet test test\BlockRdpBruteForce.Tests --filter "FullyQualifiedName~EventXmlP
 # Both Install.ps1 and build-installer.ps1 also accept -FrameworkDependent, which
 # swaps --self-contained for --no-self-contained; the target box must then have
 # the .NET 10 Desktop Runtime installed.
-dotnet publish src\BlockRdpBruteForce      -c Release -r win-x64 --self-contained -p:PublishSingleFile=true
-dotnet publish src\BlockRdpBruteForce.Tray -c Release -r win-x64 --self-contained -p:PublishSingleFile=true
+dotnet publish src\BlockRdpBruteForce         -c Release -r win-x64 --self-contained -p:PublishSingleFile=true
+dotnet publish src\BlockRdpBruteForce.Tray    -c Release -r win-x64 --self-contained -p:PublishSingleFile=true
+dotnet publish src\BlockRdpBruteForce.Updater -c Release -r win-x64 --self-contained -p:PublishSingleFile=true
 
 # Build + install + start the service (elevated PowerShell)
 .\install\Install.ps1 -Build -EnableAuditPolicy -RegisterTrayAutostart
@@ -63,6 +64,15 @@ separate CLI project.
 `src\BlockRdpBruteForce.Tray\` is a separate WinForms exe (`net10.0-windows`)
 that talks to the running service over the same named pipe via a project
 reference to the service assembly (it reuses `Ipc\PipeProtocol.cs`).
+
+`src\BlockRdpBruteForce.Updater\` is a third WinForms exe (`net10.0-windows`)
+used only during auto-update. The service stages a copy of it into
+`%ProgramData%\BlockRdpBruteForce\updates\stage\` and launches it in the
+user's session with the linked elevated token; the updater downloads the MSI
+with progress UI, runs `msiexec /quiet`, and shows the result. It runs out
+of ProgramData so the binary swap during MSI install doesn't kill it. No
+project reference back to the service: it's standalone, talks via CLI args
+and writes `update-applying.json` to coordinate.
 
 ### Event flow (push-based, no polling)
 

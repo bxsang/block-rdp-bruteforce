@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/BlockRdpBruteForce.Tray/BlockRdpBruteForce.Tray.csproj" />
+    <Project Path="src/BlockRdpBruteForce.Updater/BlockRdpBruteForce.Updater.csproj" />
     <Project Path="src/BlockRdpBruteForce/BlockRdpBruteForce.csproj" />
   </Folder>
   <Folder Name="/test/">

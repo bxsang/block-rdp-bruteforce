@@ -35,8 +35,7 @@ public sealed class UpdateApplyCompletionService : BackgroundService
             if (marker is null) return;
 
             var current = _variant.CurrentVersion;
-            var startedThreshold = TimeSpan.FromHours(1);
-            var stale = (DateTime.UtcNow - marker.StartedUtc) > startedThreshold;
+            var stale = IsMarkerStale(marker, DateTime.UtcNow);
 
             if (UpdateChecker.TryParseVersion(marker.TargetVersion, out var target) &&
                 current >= target)
@@ -74,6 +73,21 @@ public sealed class UpdateApplyCompletionService : BackgroundService
         {
             _log.LogError(ex, "UpdateApplyCompletionService failed");
         }
+    }
+
+    // Stage-aware staleness: a "launched" marker that never progressed probably
+    // means the updater never started — give up after 15 min. Once we've seen
+    // download/install activity, allow up to 1h for slow installs. Null stage
+    // is treated as "launched" so legacy pre-1.4 markers still time out.
+    internal static bool IsMarkerStale(UpdateApplyingMarker marker, DateTime nowUtc)
+    {
+        var stage = string.IsNullOrEmpty(marker.Stage)
+            ? UpdateApplyingMarker.StageLaunched
+            : marker.Stage;
+        var threshold = stage == UpdateApplyingMarker.StageLaunched
+            ? TimeSpan.FromMinutes(15)
+            : TimeSpan.FromHours(1);
+        return (nowUtc - marker.StartedUtc) > threshold;
     }
 
     private void TryLaunchTray()

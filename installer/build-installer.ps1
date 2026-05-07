@@ -4,10 +4,11 @@
     Publish service + tray, then build the MSI.
 
 .DESCRIPTION
-    Wraps the three commands that produce installer\bin\<Configuration>\BlockRdpBruteForce.msi:
-      1. dotnet publish src\BlockRdpBruteForce       (single-file)
-      2. dotnet publish src\BlockRdpBruteForce.Tray   (single-file)
-      3. dotnet build installer\BlockRdpBruteForce.Installer.wixproj
+    Wraps the commands that produce installer\bin\<Configuration>\BlockRdpBruteForce.msi:
+      1. dotnet publish src\BlockRdpBruteForce          (single-file)
+      2. dotnet publish src\BlockRdpBruteForce.Tray      (single-file)
+      3. dotnet publish src\BlockRdpBruteForce.Updater   (single-file)
+      4. dotnet build installer\BlockRdpBruteForce.Installer.wixproj
 
     By default the publish is self-contained, which makes the MSI ~70-90 MB but
     requires no .NET runtime on the target box. Pass -FrameworkDependent for a
@@ -65,6 +66,12 @@ if (-not $SkipPublish) {
         '-c', $Configuration, '-r', $Runtime,
         $selfContainedArg, '-p:PublishSingleFile=true'
     ) 'Publishing tray'
+
+    Invoke-Native dotnet @(
+        'publish', (Join-Path $repoRoot 'src\BlockRdpBruteForce.Updater'),
+        '-c', $Configuration, '-r', $Runtime,
+        $selfContainedArg, '-p:PublishSingleFile=true'
+    ) 'Publishing updater'
 }
 
 Invoke-Native dotnet @(

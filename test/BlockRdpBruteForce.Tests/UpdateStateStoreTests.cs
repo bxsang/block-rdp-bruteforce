@@ -60,18 +60,23 @@ public sealed class UpdateStateStoreTests : IDisposable
         var store = Make();
         Assert.Null(store.ReadMarker());
 
+        var stageUpdated = new DateTime(2026, 5, 8, 12, 30, 0, DateTimeKind.Utc);
         store.WriteMarker(new UpdateApplyingMarker
         {
             TargetVersion = "1.3.0",
             StartedUtc = DateTime.UtcNow,
             MsiPath = "C:\\foo.msi",
             LaunchedInUserSession = true,
+            Stage = UpdateApplyingMarker.StageDownloading,
+            StageUpdatedUtc = stageUpdated,
         });
 
         var marker = store.ReadMarker();
         Assert.NotNull(marker);
         Assert.Equal("1.3.0", marker!.TargetVersion);
         Assert.True(marker.LaunchedInUserSession);
+        Assert.Equal(UpdateApplyingMarker.StageDownloading, marker.Stage);
+        Assert.Equal(stageUpdated, marker.StageUpdatedUtc);
 
         store.DeleteMarker();
         Assert.Null(store.ReadMarker());
