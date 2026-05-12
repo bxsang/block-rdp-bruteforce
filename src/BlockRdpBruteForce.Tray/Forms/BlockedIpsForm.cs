@@ -1,4 +1,6 @@
+using System.Collections.Concurrent;
 using System.ComponentModel;
+using System.Globalization;
 using System.Net;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
@@ -65,6 +67,16 @@ public sealed class BlockedIpsForm : Form
         _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "LastSeen", HeaderText = "Last seen", SortMode = DataGridViewColumnSortMode.Automatic, FillWeight = 110 });
         _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "BlockedUntil", HeaderText = "Expires", SortMode = DataGridViewColumnSortMode.Automatic, FillWeight = 110 });
         _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "Remaining", HeaderText = "Remaining", SortMode = DataGridViewColumnSortMode.Automatic, FillWeight = 80, DefaultCellStyle = new DataGridViewCellStyle { Alignment = DataGridViewContentAlignment.MiddleRight } });
+
+        _grid.CellToolTipTextNeeded += (_, e) =>
+        {
+            if (e.RowIndex < 0 || e.ColumnIndex < 0) return;
+            var columnName = _grid.Columns[e.ColumnIndex].Name;
+            if (columnName != "Flag" && columnName != "Country") return;
+            var code = _grid.Rows[e.RowIndex].Cells["Country"].Value?.ToString();
+            if (string.IsNullOrEmpty(code)) return;
+            e.ToolTipText = CountryNameLookup.Get(code) ?? code;
+        };
 
         var contextMenu = new ContextMenuStrip();
         var copyIpItem = new ToolStripMenuItem("Copy IP", null, (_, _) => CopySelectedIp())
@@ -237,6 +249,27 @@ public sealed class BlockedIpsForm : Form
         catch (ExternalException)
         {
             _statusLabel.Text = "Clipboard unavailable, try again.";
+        }
+    }
+
+    private static class CountryNameLookup
+    {
+        private static readonly ConcurrentDictionary<string, string?> Cache = new(StringComparer.OrdinalIgnoreCase);
+
+        public static string? Get(string countryCode)
+        {
+            if (countryCode.Length != 2) return null;
+            return Cache.GetOrAdd(countryCode, code =>
+            {
+                try
+                {
+                    return new RegionInfo(code).EnglishName;
+                }
+                catch (ArgumentException)
+                {
+                    return null;
+                }
+            });
         }
     }
 
