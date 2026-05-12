@@ -27,8 +27,8 @@ internal static class Program
         {
             ShowFatal(
                 "BlockRdpBruteForce.Updater must be launched with administrator privileges. " +
-                "It is normally started by the BlockRdpBruteForce service via the user's " +
-                "elevated token; running it directly is not supported.");
+                "It is normally started by the BlockRdpBruteForce tray via ShellExecute " +
+                "\"runas\"; running it directly is not supported.");
             return 3;
         }
 
@@ -53,6 +53,11 @@ internal static class Program
             using var form = new MainForm(args, stageWriter);
             Application.Run(form);
             return 0;
+        }
+        catch (Exception ex)
+        {
+            ShowFatal($"Updater failed: {ex.Message}");
+            return 5;
         }
         finally
         {

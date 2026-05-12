@@ -17,7 +17,6 @@ public sealed class UpdateApplier
     private readonly GitHubReleaseClient _releaseClient;
     private readonly InstalledVariantDetector _variant;
     private readonly UpdateStateStore _store;
-    private readonly InteractiveProcessLauncher _launcher;
     private readonly ILogger<UpdateApplier> _log;
     private readonly SemaphoreSlim _gate = new(1, 1);
 
@@ -28,14 +27,12 @@ public sealed class UpdateApplier
         GitHubReleaseClient releaseClient,
         InstalledVariantDetector variant,
         UpdateStateStore store,
-        InteractiveProcessLauncher launcher,
         ILogger<UpdateApplier> log)
     {
         _options = options;
         _releaseClient = releaseClient;
         _variant = variant;
         _store = store;
-        _launcher = launcher;
         _log = log;
     }
 
@@ -87,55 +84,35 @@ public sealed class UpdateApplier
             var msiPath = Path.Combine(_store.DirectoryPath, record.MsiAssetName!);
             var logPath = Path.Combine(_store.DirectoryPath, $"msiexec-{requested}.log");
 
+            // Stage the updater binary into ProgramData and hand the path + args
+            // back to the tray. The tray ShellExecutes it with the "runas" verb,
+            // which produces a standard UAC prompt and runs the updater elevated
+            // inside the user's session. Service-driven CreateProcessAsUser from
+            // session 0 hits STATUS_DLL_INIT_FAILED on modern Windows when the
+            // process tries to attach to the target session's window station.
+            var stagedUpdater = TryStageUpdater(out var serviceDir, out var stageError);
+            if (stagedUpdater is null)
+                return ApplyResult.Failed($"Could not stage updater: {stageError}");
+
+            var trayPath = Path.Combine(serviceDir!, "BlockRdpBruteForce.Tray.exe");
+            var updaterArgs = BuildUpdaterArgs(record, msiPath, logPath, requested, trayPath);
+
             var marker = new UpdateApplyingMarker
             {
                 TargetVersion = requested.ToString(),
                 StartedUtc = DateTime.UtcNow,
                 MsiPath = msiPath,
-                LaunchedInUserSession = false,
+                LaunchedInUserSession = true,
                 Stage = UpdateApplyingMarker.StageLaunched,
                 StageUpdatedUtc = DateTime.UtcNow,
             };
+            _store.WriteMarker(marker);
 
-            // Active-session path: stage the updater into ProgramData and launch
-            // it in the user's session with the linked elevated token. The
-            // updater owns the download + msiexec progress UI and outlives the
-            // file replacement that kills both service and tray.
-            var stagedUpdater = TryStageUpdater(out var stageError);
-            if (stagedUpdater is not null)
-            {
-                var updaterArgs = BuildUpdaterArgs(record, msiPath, logPath, requested);
+            _log.LogInformation(
+                "Update {Target} staged at {Path}; tray will elevate via UAC (current {Current})",
+                requested, stagedUpdater, current);
 
-                _log.LogWarning(
-                    "Applying update {Target} (current {Current}); spawning updater {Path}",
-                    requested, current, stagedUpdater);
-
-                var launch = _launcher.LaunchAsActiveUser(stagedUpdater, updaterArgs, requestElevation: true);
-
-                if (launch.Ok)
-                {
-                    marker.LaunchedInUserSession = true;
-                    _store.WriteMarker(marker);
-                    _log.LogInformation(
-                        "Updater spawned in user session (pid={Pid}, elevated={Elevated})",
-                        launch.ProcessId, launch.ProcessElevated);
-                    return ApplyResult.Started($"updater started (pid {launch.ProcessId})");
-                }
-
-                _log.LogWarning(
-                    "Interactive updater launch failed ({Error}); falling back to silent install in session 0",
-                    launch.Error);
-            }
-            else
-            {
-                _log.LogWarning(
-                    "Could not stage updater binary ({Error}); falling back to silent msiexec in session 0",
-                    stageError);
-            }
-
-            // No-session / staging-failed fallback: download the MSI here and
-            // run msiexec /qn under SYSTEM. No progress UI, but it still upgrades.
-            return await SilentFallbackAsync(record, msiPath, logPath, marker, ct).ConfigureAwait(false);
+            return ApplyResult.Staged(stagedUpdater, updaterArgs);
         }
         finally
         {
@@ -143,12 +120,13 @@ public sealed class UpdateApplier
         }
     }
 
-    private string? TryStageUpdater(out string? error)
+    private string? TryStageUpdater(out string? serviceDir, out string? error)
     {
         error = null;
+        serviceDir = null;
         try
         {
-            var serviceDir = Path.GetDirectoryName(
+            serviceDir = Path.GetDirectoryName(
                 Process.GetCurrentProcess().MainModule?.FileName)
                 ?? Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
             if (string.IsNullOrEmpty(serviceDir))
@@ -180,7 +158,7 @@ public sealed class UpdateApplier
     }
 
     private static string BuildUpdaterArgs(
-        UpdateStateRecord record, string msiPath, string logPath, Version requested)
+        UpdateStateRecord record, string msiPath, string logPath, Version requested, string trayPath)
     {
         // Quote each value to defend against spaces in ProgramData paths or asset names.
         return string.Join(' ',
@@ -189,68 +167,12 @@ public sealed class UpdateApplier
             "--asset-url",  Quote(record.MsiAssetUrl ?? string.Empty),
             "--asset-size", record.MsiAssetSize.ToString(System.Globalization.CultureInfo.InvariantCulture),
             "--msi-path",   Quote(msiPath),
-            "--log-path",   Quote(logPath));
+            "--log-path",   Quote(logPath),
+            "--tray-path",  Quote(trayPath));
     }
 
     private static string Quote(string s) => $"\"{s}\"";
 
-    private async Task<ApplyResult> SilentFallbackAsync(
-        UpdateStateRecord record,
-        string msiPath,
-        string logPath,
-        UpdateApplyingMarker marker,
-        CancellationToken ct)
-    {
-        if (!File.Exists(msiPath) || new FileInfo(msiPath).Length < 100_000)
-        {
-            _log.LogInformation("Downloading MSI {Asset} (silent fallback)", record.MsiAssetName);
-            var info = new UpdateInfo
-            {
-                Version = record.LatestVersion!,
-                MsiAssetName = record.MsiAssetName!,
-                MsiAssetUrl = record.MsiAssetUrl!,
-                MsiAssetSize = record.MsiAssetSize,
-                ReleaseUrl = record.LatestReleaseUrl ?? string.Empty,
-            };
-            var dl = await _releaseClient.DownloadAssetAsync(info, msiPath, ct).ConfigureAwait(false);
-            if (!dl.Ok)
-            {
-                _store.Update(s => s.LastApplyError = dl.Error);
-                return ApplyResult.Failed($"Download failed: {dl.Error}");
-            }
-            _store.Update(s => s.MsiDownloadedPath = msiPath);
-            _store.PruneOldMsis(record.MsiAssetName);
-        }
-
-        var systemDir = Environment.GetFolderPath(Environment.SpecialFolder.System);
-        var msiexecPath = Path.Combine(systemDir, "msiexec.exe");
-        var args = $"/i \"{msiPath}\" /qn /norestart /L*v \"{logPath}\"";
-
-        try
-        {
-            var psi = new ProcessStartInfo
-            {
-                FileName = msiexecPath,
-                Arguments = args,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-            };
-            var proc = Process.Start(psi);
-            if (proc is null)
-                return ApplyResult.Failed("Process.Start returned null");
-
-            marker.LaunchedInUserSession = false;
-            marker.Stage = UpdateApplyingMarker.StageInstalling;
-            marker.StageUpdatedUtc = DateTime.UtcNow;
-            _store.WriteMarker(marker);
-            return ApplyResult.Started($"msiexec started silently (pid {proc.Id})");
-        }
-        catch (Exception ex)
-        {
-            _store.Update(s => s.LastApplyError = ex.Message);
-            return ApplyResult.Failed($"Fallback launch failed: {ex.Message}");
-        }
-    }
 }
 
 public sealed class ApplyResult
@@ -258,7 +180,17 @@ public sealed class ApplyResult
     public bool Ok { get; init; }
     public string? Error { get; init; }
     public string? Message { get; init; }
+    public string? UpdaterPath { get; init; }
+    public string? UpdaterArgs { get; init; }
 
-    public static ApplyResult Started(string message) => new() { Ok = true, Message = message };
+    public static ApplyResult Staged(string updaterPath, string updaterArgs) =>
+        new()
+        {
+            Ok = true,
+            Message = "updater staged",
+            UpdaterPath = updaterPath,
+            UpdaterArgs = updaterArgs,
+        };
+
     public static ApplyResult Failed(string error) => new() { Ok = false, Error = error };
 }

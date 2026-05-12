@@ -146,8 +146,15 @@ public sealed class UpdateStatusPayload
 
 public sealed class UpdateApplyPayload
 {
+    // True if the service successfully staged the updater and returned launch
+    // details. The tray is responsible for actually starting the staged
+    // BlockRdpBruteForce.Updater.exe via ShellExecute "runas" so the elevation
+    // happens inside the user's session — service-driven cross-session launches
+    // hit STATUS_DLL_INIT_FAILED on modern Windows.
     public bool Started { get; set; }
     public string? Message { get; set; }
+    public string? UpdaterPath { get; set; }
+    public string? UpdaterArgs { get; set; }
 }
 
 public sealed class UnblockPayload

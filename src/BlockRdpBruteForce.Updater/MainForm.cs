@@ -120,6 +120,7 @@ internal sealed class MainForm : Form
                     ? $"Update complete (v{_args.Version}). A reboot is required to finish."
                     : $"Update complete (v{_args.Version}).",
                     detail: $"msiexec exit code {installResult.ExitCode}");
+                TryRelaunchTray();
             }
             else if (installResult.WasCancelled)
             {
@@ -300,6 +301,30 @@ internal sealed class MainForm : Form
             _cts.Dispose();
         }
         base.Dispose(disposing);
+    }
+
+    // After msiexec returns we're already in the user's session with the freshly
+    // installed binaries on disk. Launching the tray here is reliable, while the
+    // service's post-restart relaunch has historically been flaky (race with MSI
+    // finalization, cross-session quirks).
+    private void TryRelaunchTray()
+    {
+        var path = _args.TrayPath;
+        if (string.IsNullOrEmpty(path) || !File.Exists(path)) return;
+
+        try
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = path,
+                UseShellExecute = false,
+                WorkingDirectory = Path.GetDirectoryName(path) ?? string.Empty,
+            });
+        }
+        catch
+        {
+            // Non-fatal — HKLM Run will pick it up at next logon.
+        }
     }
 
     // Tiny holder so an `await using` stays scoped if we ever pool the HttpClient.

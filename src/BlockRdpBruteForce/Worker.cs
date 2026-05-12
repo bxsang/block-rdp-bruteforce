@@ -415,6 +415,8 @@ public sealed class Worker : BackgroundService, IPipeOps
         {
             Started = result.Ok,
             Message = result.Ok ? result.Message : result.Error,
+            UpdaterPath = result.UpdaterPath,
+            UpdaterArgs = result.UpdaterArgs,
         };
     }
 

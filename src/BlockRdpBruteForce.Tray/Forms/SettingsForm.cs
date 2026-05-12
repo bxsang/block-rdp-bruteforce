@@ -931,8 +931,9 @@ public sealed class SettingsForm : Form
         var confirm = MessageBox.Show(
             this,
             $"Install BlockRdpBruteForce {version} now?\n\n" +
-            "The service will briefly restart, you'll see a Windows Installer progress " +
-            "dialog, and the tray will reappear automatically when the upgrade is done.",
+            "You'll see a User Account Control prompt — click Yes to allow the updater. " +
+            "A progress window will then download the installer and run it; the service " +
+            "and tray will restart automatically when the upgrade is done.",
             "Install update",
             MessageBoxButtons.YesNo,
             MessageBoxIcon.Question,
@@ -944,9 +945,9 @@ public sealed class SettingsForm : Form
         {
             _updateInstall.Enabled = false;
             _updateCheckNow.Enabled = false;
-            _updateStatus.Text = $"Installing {version}…";
+            _updateStatus.Text = $"Preparing {version}…";
             var result = await _client.UpdateApplyAsync(version);
-            if (!result.Started)
+            if (!result.Started || string.IsNullOrEmpty(result.UpdaterPath))
             {
                 MessageBox.Show(
                     this,
@@ -955,6 +956,31 @@ public sealed class SettingsForm : Form
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Warning);
                 _updateStatus.Text = result.Message ?? "Update did not start.";
+                _updateInstall.Enabled = true;
+                _updateCheckNow.Enabled = true;
+                return;
+            }
+
+            // The service staged the updater binary; we launch it here with the
+            // "runas" verb so Windows produces a UAC prompt inside this user's
+            // session. Launching elevated from the service across sessions
+            // produces STATUS_DLL_INIT_FAILED on modern Windows.
+            _updateStatus.Text = $"Installing {version}…";
+            try
+            {
+                var psi = new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = result.UpdaterPath,
+                    Arguments = result.UpdaterArgs ?? string.Empty,
+                    UseShellExecute = true,
+                    Verb = "runas",
+                };
+                System.Diagnostics.Process.Start(psi);
+            }
+            catch (System.ComponentModel.Win32Exception wex) when (wex.NativeErrorCode == 1223)
+            {
+                // ERROR_CANCELLED — user declined the UAC prompt.
+                _updateStatus.Text = "Update cancelled by user.";
                 _updateInstall.Enabled = true;
                 _updateCheckNow.Enabled = true;
                 return;

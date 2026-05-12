@@ -19,27 +19,17 @@ public sealed class InteractiveProcessLauncher
         string commandLine,
         bool requestElevation)
     {
-        var sessionId = NativeMethods.WTSGetActiveConsoleSessionId();
-        if (sessionId == 0xFFFFFFFFu)
+        if (!TryResolveInteractiveSession(out var sessionId, out var userToken, out var resolveError))
         {
-            return LaunchResult.NoActiveSession();
+            return resolveError;
         }
 
-        IntPtr userToken = IntPtr.Zero;
         IntPtr elevatedToken = IntPtr.Zero;
         IntPtr primaryToken = IntPtr.Zero;
         IntPtr environment = IntPtr.Zero;
 
         try
         {
-            if (!NativeMethods.WTSQueryUserToken(sessionId, out userToken))
-            {
-                var err = Marshal.GetLastWin32Error();
-                if (err == NativeMethods.ERROR_NO_TOKEN)
-                    return LaunchResult.NoActiveSession();
-                return LaunchResult.Failed($"WTSQueryUserToken failed (Win32 {err})");
-            }
-
             var tokenForProcess = userToken;
             var elevated = false;
 
@@ -62,12 +52,37 @@ public sealed class InteractiveProcessLauncher
                     tokenForProcess,
                     NativeMethods.TOKEN_ALL_ACCESS,
                     IntPtr.Zero,
-                    NativeMethods.SECURITY_IMPERSONATION_LEVEL.SecurityIdentification,
+                    NativeMethods.SECURITY_IMPERSONATION_LEVEL.SecurityImpersonation,
                     NativeMethods.TOKEN_TYPE.TokenPrimary,
                     out primaryToken))
             {
                 return LaunchResult.Failed(
                     $"DuplicateTokenEx failed (Win32 {Marshal.GetLastWin32Error()})");
+            }
+
+            // The linked elevated token retrieved via TokenLinkedToken is created at
+            // logon and can carry session id 0. Without re-stamping it here, the new
+            // process is created in session 0 (the service session) and the .NET host
+            // dies before reaching managed code, since WinForms can't bind to the
+            // session-0 desktop. Pin it to the resolved interactive session.
+            var sidBuf = Marshal.AllocHGlobal(sizeof(uint));
+            try
+            {
+                Marshal.WriteInt32(sidBuf, (int)sessionId);
+                if (!NativeMethods.SetTokenInformation(
+                        primaryToken,
+                        NativeMethods.TOKEN_INFORMATION_CLASS.TokenSessionId,
+                        sidBuf,
+                        sizeof(uint)))
+                {
+                    _log.LogWarning(
+                        "SetTokenInformation(TokenSessionId={Session}) failed (Win32 {Err}); process may launch in wrong session",
+                        sessionId, Marshal.GetLastWin32Error());
+                }
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(sidBuf);
             }
 
             if (!NativeMethods.CreateEnvironmentBlock(out environment, primaryToken, false))
@@ -85,6 +100,10 @@ public sealed class InteractiveProcessLauncher
             var cmd = $"\"{applicationPath}\" {commandLine}".Trim();
             var cmdBuffer = new System.Text.StringBuilder(cmd, cmd.Length + 1);
 
+            // No CREATE_NEW_CONSOLE: WinForms doesn't need a console, and allocating
+            // one cross-session requires csrss cooperation that fails when the
+            // primary token's session id was re-stamped — producing
+            // STATUS_DLL_INIT_FAILED (0xC0000142) before managed code can run.
             var ok = NativeMethods.CreateProcessAsUser(
                 primaryToken,
                 applicationPath,
@@ -92,7 +111,7 @@ public sealed class InteractiveProcessLauncher
                 IntPtr.Zero,
                 IntPtr.Zero,
                 false,
-                NativeMethods.CREATE_UNICODE_ENVIRONMENT | NativeMethods.CREATE_NEW_CONSOLE,
+                NativeMethods.CREATE_UNICODE_ENVIRONMENT,
                 environment,
                 null,
                 ref startupInfo,
@@ -126,6 +145,93 @@ public sealed class InteractiveProcessLauncher
             SafeClose(primaryToken);
             SafeClose(elevatedToken);
             SafeClose(userToken);
+        }
+    }
+
+    // Picks the session a user-visible UI should run in. We prefer the physical
+    // console (the local desktop), but fall back to enumerating Terminal Services
+    // sessions when the console has no logged-in user — common on RDP-only
+    // headless boxes (e.g. Server VMs, dev machines accessed remotely).
+    private bool TryResolveInteractiveSession(
+        out uint sessionId, out IntPtr userToken, out LaunchResult error)
+    {
+        sessionId = 0;
+        userToken = IntPtr.Zero;
+        error = LaunchResult.NoActiveSession();
+
+        var consoleSession = NativeMethods.WTSGetActiveConsoleSessionId();
+        if (consoleSession != 0xFFFFFFFFu &&
+            NativeMethods.WTSQueryUserToken(consoleSession, out userToken))
+        {
+            sessionId = consoleSession;
+            return true;
+        }
+
+        var consoleErr = consoleSession == 0xFFFFFFFFu
+            ? "no console session"
+            : $"Win32 {Marshal.GetLastWin32Error()}";
+
+        if (TryFindActiveTsSession(out sessionId, out userToken, out var enumErr))
+        {
+            _log.LogInformation(
+                "Console session unavailable ({Console}); using interactive TS session {Session}",
+                consoleErr, sessionId);
+            return true;
+        }
+
+        error = enumErr == null
+            ? LaunchResult.NoActiveSession()
+            : LaunchResult.Failed($"No interactive session found ({consoleErr}; {enumErr})");
+        return false;
+    }
+
+    private static bool TryFindActiveTsSession(
+        out uint sessionId, out IntPtr userToken, out string? error)
+    {
+        sessionId = 0;
+        userToken = IntPtr.Zero;
+        error = null;
+
+        IntPtr buffer = IntPtr.Zero;
+        try
+        {
+            if (!NativeMethods.WTSEnumerateSessions(
+                    IntPtr.Zero, 0, 1, out buffer, out var count))
+            {
+                error = $"WTSEnumerateSessions failed (Win32 {Marshal.GetLastWin32Error()})";
+                return false;
+            }
+
+            var entrySize = Marshal.SizeOf<NativeMethods.WTS_SESSION_INFO>();
+            for (var i = 0; i < count; i++)
+            {
+                var entry = Marshal.PtrToStructure<NativeMethods.WTS_SESSION_INFO>(
+                    IntPtr.Add(buffer, i * entrySize));
+
+                if (entry.State != NativeMethods.WTS_CONNECTSTATE_CLASS.WTSActive) continue;
+                if (entry.SessionId == 0) continue; // services session
+
+                if (NativeMethods.WTSQueryUserToken((uint)entry.SessionId, out userToken))
+                {
+                    sessionId = (uint)entry.SessionId;
+                    return true;
+                }
+            }
+
+            error = "no active TS session with a queryable user token";
+            return false;
+        }
+        catch (Exception ex)
+        {
+            error = ex.Message;
+            return false;
+        }
+        finally
+        {
+            if (buffer != IntPtr.Zero)
+            {
+                try { NativeMethods.WTSFreeMemory(buffer); } catch { }
+            }
         }
     }
 
@@ -212,6 +318,7 @@ public sealed class InteractiveProcessLauncher
         public enum TOKEN_INFORMATION_CLASS
         {
             TokenUser = 1,
+            TokenSessionId = 12,
             TokenElevationType = 18,
             TokenLinkedToken = 19,
         }
@@ -221,6 +328,28 @@ public sealed class InteractiveProcessLauncher
             TokenElevationTypeDefault = 1,
             TokenElevationTypeFull = 2,
             TokenElevationTypeLimited = 3,
+        }
+
+        public enum WTS_CONNECTSTATE_CLASS
+        {
+            WTSActive = 0,
+            WTSConnected = 1,
+            WTSConnectQuery = 2,
+            WTSShadow = 3,
+            WTSDisconnected = 4,
+            WTSIdle = 5,
+            WTSListen = 6,
+            WTSReset = 7,
+            WTSDown = 8,
+            WTSInit = 9,
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct WTS_SESSION_INFO
+        {
+            public int SessionId;
+            [MarshalAs(UnmanagedType.LPWStr)] public string pWinStationName;
+            public WTS_CONNECTSTATE_CLASS State;
         }
 
         [StructLayout(LayoutKind.Sequential)]
@@ -261,6 +390,17 @@ public sealed class InteractiveProcessLauncher
         [DllImport("Wtsapi32.dll", SetLastError = true)]
         public static extern bool WTSQueryUserToken(uint sessionId, out IntPtr token);
 
+        [DllImport("Wtsapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+        public static extern bool WTSEnumerateSessions(
+            IntPtr serverHandle,
+            uint reserved,
+            uint version,
+            out IntPtr ppSessionInfo,
+            out int sessionCount);
+
+        [DllImport("Wtsapi32.dll")]
+        public static extern void WTSFreeMemory(IntPtr memory);
+
         [DllImport("advapi32.dll", SetLastError = true)]
         public static extern bool DuplicateTokenEx(
             IntPtr existingToken,
@@ -277,6 +417,13 @@ public sealed class InteractiveProcessLauncher
             IntPtr buffer,
             int bufferSize,
             out int returnLength);
+
+        [DllImport("advapi32.dll", SetLastError = true)]
+        public static extern bool SetTokenInformation(
+            IntPtr token,
+            TOKEN_INFORMATION_CLASS infoClass,
+            IntPtr buffer,
+            int bufferSize);
 
         [DllImport("userenv.dll", SetLastError = true)]
         public static extern bool CreateEnvironmentBlock(

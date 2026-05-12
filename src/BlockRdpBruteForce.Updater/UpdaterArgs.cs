@@ -11,6 +11,7 @@ internal sealed class UpdaterArgs
     public required long AssetSize { get; init; }
     public required string MsiPath { get; init; }
     public required string LogPath { get; init; }
+    public string? TrayPath { get; init; }
 
     public static ParseResult Parse(string[] argv)
     {
@@ -22,6 +23,7 @@ internal sealed class UpdaterArgs
         long? assetSize = null;
         string? msiPath = null;
         string? logPath = null;
+        string? trayPath = null;
 
         for (var i = 0; i < argv.Length; i++)
         {
@@ -40,6 +42,7 @@ internal sealed class UpdaterArgs
                     break;
                 case "--msi-path": msiPath = value; break;
                 case "--log-path": logPath = value; break;
+                case "--tray-path": trayPath = value; break;
                 default: return ParseResult.Failed($"unknown argument: {key}");
             }
         }
@@ -71,6 +74,7 @@ internal sealed class UpdaterArgs
             AssetSize = assetSize.Value,
             MsiPath = Path.GetFullPath(msiPath!),
             LogPath = Path.GetFullPath(logPath!),
+            TrayPath = string.IsNullOrWhiteSpace(trayPath) ? null : Path.GetFullPath(trayPath!),
         };
         return ParseResult.Success(args);
     }
