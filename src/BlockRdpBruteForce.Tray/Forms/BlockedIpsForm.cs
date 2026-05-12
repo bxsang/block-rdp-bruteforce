@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Net;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
@@ -139,6 +140,9 @@ public sealed class BlockedIpsForm : Form
             var nowUtc = DateTime.UtcNow;
             var showHistory = _showHistoryCheckbox.Checked;
 
+            var sortedColumn = _grid.SortedColumn;
+            var sortOrder = _grid.SortOrder;
+
             var active = 0;
             var historical = 0;
             _grid.SuspendLayout();
@@ -166,6 +170,14 @@ public sealed class BlockedIpsForm : Form
                     _grid.Rows[rowIndex].DefaultCellStyle.ForeColor = SystemColors.GrayText;
             }
             _grid.ResumeLayout();
+
+            if (sortedColumn != null && sortOrder != SortOrder.None)
+            {
+                _grid.Sort(sortedColumn, sortOrder == SortOrder.Ascending
+                    ? ListSortDirection.Ascending
+                    : ListSortDirection.Descending);
+            }
+
             _statusLabel.Text = historical > 0
                 ? $"{active} blocked, {historical} in history"
                 : $"{active} blocked";
