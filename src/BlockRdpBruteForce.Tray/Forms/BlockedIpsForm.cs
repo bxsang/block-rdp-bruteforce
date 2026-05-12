@@ -64,6 +64,7 @@ public sealed class BlockedIpsForm : Form
         _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "FirstSeen", HeaderText = "First seen", SortMode = DataGridViewColumnSortMode.Automatic, FillWeight = 110 });
         _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "LastSeen", HeaderText = "Last seen", SortMode = DataGridViewColumnSortMode.Automatic, FillWeight = 110 });
         _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "BlockedUntil", HeaderText = "Expires", SortMode = DataGridViewColumnSortMode.Automatic, FillWeight = 110 });
+        _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "Remaining", HeaderText = "Remaining", SortMode = DataGridViewColumnSortMode.Automatic, FillWeight = 80, DefaultCellStyle = new DataGridViewCellStyle { Alignment = DataGridViewContentAlignment.MiddleRight } });
 
         var contextMenu = new ContextMenuStrip();
         var copyIpItem = new ToolStripMenuItem("Copy IP", null, (_, _) => CopySelectedIp())
@@ -170,7 +171,8 @@ public sealed class BlockedIpsForm : Form
                     e.Count.ToString(),
                     e.FirstSeenUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"),
                     e.LastSeenUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"),
-                    e.BlockedUntilUtc?.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss") ?? "permanent");
+                    e.BlockedUntilUtc?.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss") ?? "permanent",
+                    FormatRemaining(e.BlockedUntilUtc, nowUtc, isActive));
 
                 if (!isActive)
                     _grid.Rows[rowIndex].DefaultCellStyle.ForeColor = SystemColors.GrayText;
@@ -192,6 +194,33 @@ public sealed class BlockedIpsForm : Form
         {
             _statusLabel.Text = $"Error: {ex.Message}";
         }
+    }
+
+    private static string FormatRemaining(DateTime? blockedUntilUtc, DateTime nowUtc, bool isActive)
+    {
+        if (!isActive) return string.Empty;
+        if (!blockedUntilUtc.HasValue) return "permanent";
+
+        var remaining = blockedUntilUtc.Value - nowUtc;
+        if (remaining <= TimeSpan.Zero) return string.Empty;
+
+        if (remaining.TotalDays >= 1)
+        {
+            var days = (int)remaining.TotalDays;
+            var hours = remaining.Hours;
+            return hours > 0 ? $"{days}d {hours}h" : $"{days}d";
+        }
+        if (remaining.TotalHours >= 1)
+        {
+            var hours = (int)remaining.TotalHours;
+            var minutes = remaining.Minutes;
+            return minutes > 0 ? $"{hours}h {minutes}m" : $"{hours}h";
+        }
+        if (remaining.TotalMinutes >= 1)
+        {
+            return $"{(int)remaining.TotalMinutes}m";
+        }
+        return $"{(int)remaining.TotalSeconds}s";
     }
 
     private void CopySelectedIp()

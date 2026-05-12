@@ -277,4 +277,70 @@ public sealed class SettingsWriterTests : IDisposable
         Assert.Throws<ConfigValidationException>(() => _writer.Apply(
             new ConfigPayload { GeoRefreshIntervalDays = 31 }, "test"));
     }
+
+    [Fact]
+    public void Apply_ladder_change_writes_file_and_requires_restart()
+    {
+        var result = _writer.Apply(
+            new ConfigPayload { BlockDurationLadderMinutes = new List<int> { 1440, 10080, 0 } },
+            "test");
+
+        Assert.True(result.RestartRequired);
+        Assert.Empty(result.AppliedHot);
+        Assert.Equal(new List<int> { 1440, 10080, 0 }, result.Effective.BlockDurationLadderMinutes);
+
+        var json = JsonNode.Parse(File.ReadAllText(_path))!;
+        var arr = json["BlockRdp"]!["BlockDurationLadderMinutes"]!.AsArray();
+        Assert.Equal(3, arr.Count);
+        Assert.Equal(1440, arr[0]!.GetValue<int>());
+        Assert.Equal(0, arr[2]!.GetValue<int>());
+    }
+
+    [Fact]
+    public void Apply_ladder_clear_is_persisted_as_empty_array()
+    {
+        _writer.Apply(
+            new ConfigPayload { BlockDurationLadderMinutes = new List<int> { 1440, 10080 } },
+            "test");
+        _writer.Apply(
+            new ConfigPayload { BlockDurationLadderMinutes = new List<int>() },
+            "test");
+
+        var json = JsonNode.Parse(File.ReadAllText(_path))!;
+        var arr = json["BlockRdp"]!["BlockDurationLadderMinutes"]!.AsArray();
+        Assert.Empty(arr);
+    }
+
+    [Fact]
+    public void Apply_same_ladder_is_noop()
+    {
+        _writer.Apply(
+            new ConfigPayload { BlockDurationLadderMinutes = new List<int> { 1440, 10080 } },
+            "test");
+        File.Delete(_path);
+
+        var result = _writer.Apply(
+            new ConfigPayload { BlockDurationLadderMinutes = new List<int> { 1440, 10080 } },
+            "test");
+
+        Assert.False(result.RestartRequired);
+        Assert.False(File.Exists(_path));
+    }
+
+    [Fact]
+    public void Validate_rejects_ladder_with_negative_entry()
+    {
+        var ex = Assert.Throws<ConfigValidationException>(() => _writer.Apply(
+            new ConfigPayload { BlockDurationLadderMinutes = new List<int> { 60, -1 } },
+            "test"));
+        Assert.Contains(">= 0", ex.Message);
+    }
+
+    [Fact]
+    public void Validate_rejects_ladder_with_zero_not_at_end()
+    {
+        Assert.Throws<ConfigValidationException>(() => _writer.Apply(
+            new ConfigPayload { BlockDurationLadderMinutes = new List<int> { 60, 0, 1440 } },
+            "test"));
+    }
 }

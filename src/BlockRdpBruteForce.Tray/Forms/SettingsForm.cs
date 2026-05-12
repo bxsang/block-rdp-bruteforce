@@ -22,6 +22,7 @@ public sealed class SettingsForm : Form
     private readonly NumericUpDown _failureThreshold;
     private readonly NumericUpDown _slidingWindow;
     private readonly NumericUpDown _blockDuration;
+    private readonly TextBox _blockDurationLadder;
     private readonly NumericUpDown _historyRetention;
     private readonly ComboBox _firewallScope;
     private readonly CheckBox _evaluateNla;
@@ -84,6 +85,11 @@ public sealed class SettingsForm : Form
         _failureThreshold = NewSpinner(1, 1000);
         _slidingWindow = NewSpinner(1, 1440);
         _blockDuration = NewSpinner(0, 525_600);
+        _blockDurationLadder = new TextBox
+        {
+            Anchor = AnchorStyles.Left | AnchorStyles.Right,
+            PlaceholderText = "e.g. 1440, 10080, 43200, 0  (empty = use single value above)",
+        };
         _historyRetention = NewSpinner(0, 3650);
 
         _firewallScope = new ComboBox
@@ -296,21 +302,22 @@ public sealed class SettingsForm : Form
         {
             Dock = DockStyle.Top,
             ColumnCount = 2,
-            RowCount = 6,
+            RowCount = 7,
             AutoSize = true,
             AutoSizeMode = AutoSizeMode.GrowAndShrink,
         };
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 280));
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        for (var i = 0; i < 6; i++)
+        for (var i = 0; i < 7; i++)
             layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
         AddRow(layout, 0, "Failure threshold (count):", _failureThreshold);
         AddRow(layout, 1, "Sliding window (minutes):", _slidingWindow);
         AddRow(layout, 2, "Block duration (minutes, 0 = permanent):", _blockDuration);
-        AddRow(layout, 3, "History retention (days, 0 = keep forever):", _historyRetention);
-        AddRow(layout, 4, "Firewall scope:", _firewallScope);
-        AddRow(layout, 5, string.Empty, _evaluateNla);
+        AddRow(layout, 3, "Repeat-offender ladder (minutes, comma-separated):", _blockDurationLadder);
+        AddRow(layout, 4, "History retention (days, 0 = keep forever):", _historyRetention);
+        AddRow(layout, 5, "Firewall scope:", _firewallScope);
+        AddRow(layout, 6, string.Empty, _evaluateNla);
 
         page.Controls.Add(layout);
         return page;
@@ -839,6 +846,8 @@ public sealed class SettingsForm : Form
         if ((int)_failureThreshold.Value != _loaded.FailureThreshold) return true;
         if ((int)_slidingWindow.Value != _loaded.SlidingWindowMinutes) return true;
         if ((int)_blockDuration.Value != _loaded.BlockDurationMinutes) return true;
+        if (TryParseLadder(_blockDurationLadder.Text, out var ladder, out _) &&
+            !LaddersEqual(ladder, _loaded.BlockDurationLadderMinutes ?? new List<int>())) return true;
         if ((int)_historyRetention.Value != _loaded.HistoryRetentionDays) return true;
         var scope = _firewallScope.SelectedItem as string ?? "AllPorts";
         if (!string.Equals(scope, _loaded.FirewallScope, StringComparison.Ordinal)) return true;
@@ -1062,6 +1071,7 @@ public sealed class SettingsForm : Form
             _failureThreshold.Value = Clamp(c.FailureThreshold ?? 5, _failureThreshold);
             _slidingWindow.Value = Clamp(c.SlidingWindowMinutes ?? 10, _slidingWindow);
             _blockDuration.Value = Clamp(c.BlockDurationMinutes ?? 1440, _blockDuration);
+            _blockDurationLadder.Text = FormatLadder(c.BlockDurationLadderMinutes ?? new List<int>());
             _historyRetention.Value = Clamp(c.HistoryRetentionDays ?? 90, _historyRetention);
 
             var scope = c.FirewallScope ?? "AllPorts";
@@ -1164,6 +1174,59 @@ public sealed class SettingsForm : Form
         }
     }
 
+    private static string FormatLadder(IReadOnlyList<int> ladder)
+    {
+        if (ladder.Count == 0) return string.Empty;
+        return string.Join(", ", ladder);
+    }
+
+    private static bool TryParseLadder(string text, out List<int> ladder, out string error)
+    {
+        ladder = new List<int>();
+        error = string.Empty;
+        if (string.IsNullOrWhiteSpace(text)) return true;
+
+        var parts = text.Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries);
+        for (var i = 0; i < parts.Length; i++)
+        {
+            var trimmed = parts[i].Trim();
+            if (!int.TryParse(trimmed, System.Globalization.NumberStyles.Integer,
+                              System.Globalization.CultureInfo.InvariantCulture, out var n))
+            {
+                error = $"entry #{i + 1} '{trimmed}' is not a whole number";
+                ladder.Clear();
+                return false;
+            }
+            if (n < 0)
+            {
+                error = $"entry #{i + 1} ({n}) is negative; must be >= 0";
+                ladder.Clear();
+                return false;
+            }
+            ladder.Add(n);
+        }
+
+        for (var i = 0; i < ladder.Count - 1; i++)
+        {
+            if (ladder[i] == 0)
+            {
+                error = $"entry #{i + 1} is 0 (permanent); only the last entry may be 0";
+                ladder.Clear();
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static bool LaddersEqual(IReadOnlyList<int> a, IReadOnlyList<int> b)
+    {
+        if (a.Count != b.Count) return false;
+        for (var i = 0; i < a.Count; i++)
+            if (a[i] != b[i]) return false;
+        return true;
+    }
+
     private static decimal Clamp(int value, NumericUpDown control)
     {
         decimal v = value;
@@ -1187,9 +1250,24 @@ public sealed class SettingsForm : Form
         var geoToken = _geoToken.Text;
         var geoIntv = (int)_geoInterval.Value;
 
+        if (!TryParseLadder(_blockDurationLadder.Text, out var ladder, out var ladderError))
+        {
+            MessageBox.Show(this,
+                $"Repeat-offender ladder is invalid: {ladderError}",
+                "Cannot apply settings",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Warning);
+            _statusLabel.Text = $"Rejected: {ladderError}";
+            _tabs.SelectedTab = _generalTab;
+            _blockDurationLadder.Focus();
+            return;
+        }
+
         if (ft != _loaded.FailureThreshold) payload.FailureThreshold = ft;
         if (sw != _loaded.SlidingWindowMinutes) payload.SlidingWindowMinutes = sw;
         if (bd != _loaded.BlockDurationMinutes) payload.BlockDurationMinutes = bd;
+        if (!LaddersEqual(ladder, _loaded.BlockDurationLadderMinutes ?? new List<int>()))
+            payload.BlockDurationLadderMinutes = ladder;
         if (hr != _loaded.HistoryRetentionDays) payload.HistoryRetentionDays = hr;
         if (!string.Equals(scope, _loaded.FirewallScope, StringComparison.Ordinal)) payload.FirewallScope = scope;
         if (nla != _loaded.EvaluateNlaFallback) payload.EvaluateNlaFallback = nla;
@@ -1206,6 +1284,7 @@ public sealed class SettingsForm : Form
         if (payload.FailureThreshold is null
             && payload.SlidingWindowMinutes is null
             && payload.BlockDurationMinutes is null
+            && payload.BlockDurationLadderMinutes is null
             && payload.HistoryRetentionDays is null
             && payload.FirewallScope is null
             && payload.EvaluateNlaFallback is null

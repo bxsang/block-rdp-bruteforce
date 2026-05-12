@@ -236,19 +236,31 @@ public sealed class Worker : BackgroundService, IPipeOps
                 return;
             }
 
-            TimeSpan? duration = _options.BlockDurationMinutes <= 0
-                ? null
-                : TimeSpan.FromMinutes(_options.BlockDurationMinutes);
+            var priorBlockCount = existing?.Count ?? 0;
+            var ladder = _options.BlockDurationLadderMinutes;
+            var duration = BlockDurationLadder.Resolve(
+                ladder, priorBlockCount, _options.BlockDurationMinutes);
+            var step = BlockDurationLadder.StepFor(ladder, priorBlockCount);
 
             var record = _state.Upsert(ip, utcNow, duration);
             _firewall.AddIp(ip);
             _state.Save();
             _tracker.Reset(ip);
 
-            _log.LogWarning(
-                "Blocked {Ip} (failures={Count}, until={Until})",
-                ip, record.Count,
-                record.BlockedUntilUtc?.ToString("o") ?? "permanent");
+            if (ladder is { Count: > 0 })
+            {
+                _log.LogWarning(
+                    "Blocked {Ip} (timesBlocked={Count}, ladderStep={Step}/{StepCount}, until={Until})",
+                    ip, record.Count, step + 1, ladder.Count,
+                    record.BlockedUntilUtc?.ToString("o") ?? "permanent");
+            }
+            else
+            {
+                _log.LogWarning(
+                    "Blocked {Ip} (timesBlocked={Count}, until={Until})",
+                    ip, record.Count,
+                    record.BlockedUntilUtc?.ToString("o") ?? "permanent");
+            }
         }
         finally
         {

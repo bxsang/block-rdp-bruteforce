@@ -64,6 +64,7 @@ public sealed class ConfigPayload
     public int? FailureThreshold { get; set; }
     public int? SlidingWindowMinutes { get; set; }
     public int? BlockDurationMinutes { get; set; }
+    public List<int>? BlockDurationLadderMinutes { get; set; }
     public List<string>? Whitelist { get; set; }
     public string? FirewallScope { get; set; }
     public bool? EvaluateNlaFallback { get; set; }

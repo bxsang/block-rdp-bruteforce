@@ -7,6 +7,7 @@ public sealed class AppOptions
     public int FailureThreshold { get; set; } = 5;
     public int SlidingWindowMinutes { get; set; } = 10;
     public int BlockDurationMinutes { get; set; } = 1440;
+    public List<int> BlockDurationLadderMinutes { get; set; } = new();
     public List<string> Whitelist { get; set; } = new();
     public string FirewallRuleName { get; set; } = "BlockRDPBruteForce";
     public string FirewallScope { get; set; } = "AllPorts";
