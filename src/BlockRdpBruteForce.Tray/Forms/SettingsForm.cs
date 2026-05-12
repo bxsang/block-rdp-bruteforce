@@ -424,60 +424,126 @@ public sealed class SettingsForm : Form
 
     private void LoadAutostartState()
     {
-        var hkcuSet = false;
-        try
-        {
-            using var key = Registry.CurrentUser.OpenSubKey(AutostartRegPath, writable: false);
-            hkcuSet = key?.GetValue(AutostartValueName) is string s && !string.IsNullOrEmpty(s);
-        }
-        catch { }
-
-        var hklmSet = false;
-        try
-        {
-            using var key = Registry.LocalMachine.OpenSubKey(AutostartRegPath, writable: false);
-            hklmSet = key?.GetValue(AutostartValueName) is not null;
-        }
-        catch { }
+        var hkcuSet = IsHkcuAutostartSet();
+        var hklmSet = IsHklmAutostartSet();
 
         _autostartEnabled.CheckedChanged -= OnAutostartToggled;
         _autostartEnabled.Checked = hkcuSet || hklmSet;
-        // When the MSI owns the HKLM value, the checkbox reflects the effective state
-        // but can't be flipped from here — disable it and explain.
-        _autostartEnabled.Enabled = !hklmSet;
+        _autostartEnabled.Enabled = true;
         _autostartEnabled.CheckedChanged += OnAutostartToggled;
 
         _autostartNote.Text = hklmSet
-            ? "Managed by the installer for all users (HKLM). To change it, re-run the installer " +
-              "or remove the BlockRdpBruteForceTray value under HKLM\\…\\CurrentVersion\\Run."
-            : "Toggles a HKCU\\…\\Run entry. No admin needed; affects this user only.";
+            ? "Currently enabled for all users (HKLM, set by the installer). Unticking will " +
+              "prompt for Administrator approval to clear the machine-wide entry."
+            : "Tick: write a per-user HKCU\\…\\Run entry (no admin needed). " +
+              "Untick: also clear any HKLM entry, which prompts for Administrator approval.";
     }
 
-    private void OnAutostartToggled(object? sender, EventArgs e)
+    private static bool IsHkcuAutostartSet()
     {
         try
         {
-            using var key = Registry.CurrentUser.CreateSubKey(AutostartRegPath, writable: true);
-            if (key is null) return;
-            if (_autostartEnabled.Checked)
+            using var key = Registry.CurrentUser.OpenSubKey(AutostartRegPath, writable: false);
+            return key?.GetValue(AutostartValueName) is string s && !string.IsNullOrEmpty(s);
+        }
+        catch { return false; }
+    }
+
+    private static bool IsHklmAutostartSet()
+    {
+        try
+        {
+            using var key = Registry.LocalMachine.OpenSubKey(AutostartRegPath, writable: false);
+            return key?.GetValue(AutostartValueName) is not null;
+        }
+        catch { return false; }
+    }
+
+    private async void OnAutostartToggled(object? sender, EventArgs e)
+    {
+        var wantEnabled = _autostartEnabled.Checked;
+        _autostartEnabled.Enabled = false;
+        try
+        {
+            if (wantEnabled)
             {
-                var path = Application.ExecutablePath;
-                key.SetValue(AutostartValueName, $"\"{path}\"", RegistryValueKind.String);
-                _statusLabel.Text = "Autostart enabled for this user.";
+                using var key = Registry.CurrentUser.CreateSubKey(AutostartRegPath, writable: true);
+                key?.SetValue(AutostartValueName, $"\"{Application.ExecutablePath}\"", RegistryValueKind.String);
+                _statusLabel.Text = "Autostart enabled.";
             }
             else
             {
-                key.DeleteValue(AutostartValueName, throwOnMissingValue: false);
-                _statusLabel.Text = "Autostart disabled for this user.";
+                try
+                {
+                    using var key = Registry.CurrentUser.CreateSubKey(AutostartRegPath, writable: true);
+                    key?.DeleteValue(AutostartValueName, throwOnMissingValue: false);
+                }
+                catch { /* best-effort HKCU clear */ }
+
+                if (IsHklmAutostartSet())
+                {
+                    var ok = await SetHklmAutostartElevatedAsync(enable: false);
+                    if (!ok)
+                    {
+                        _statusLabel.Text = "Autostart change cancelled.";
+                        return;
+                    }
+                }
+                _statusLabel.Text = "Autostart disabled.";
             }
         }
         catch (Exception ex)
         {
             MessageBox.Show(this, ex.Message, "Could not change autostart",
                 MessageBoxButtons.OK, MessageBoxIcon.Error);
-            _autostartEnabled.CheckedChanged -= OnAutostartToggled;
-            _autostartEnabled.Checked = !_autostartEnabled.Checked;
-            _autostartEnabled.CheckedChanged += OnAutostartToggled;
+        }
+        finally
+        {
+            LoadAutostartState();
+        }
+    }
+
+    private async Task<bool> SetHklmAutostartElevatedAsync(bool enable)
+    {
+        var psi = new ProcessStartInfo("reg.exe")
+        {
+            UseShellExecute = true,
+            Verb = "runas",
+            WindowStyle = ProcessWindowStyle.Hidden,
+        };
+
+        if (enable)
+        {
+            psi.ArgumentList.Add("add");
+            psi.ArgumentList.Add($@"HKLM\{AutostartRegPath}");
+            psi.ArgumentList.Add("/v");
+            psi.ArgumentList.Add(AutostartValueName);
+            psi.ArgumentList.Add("/t");
+            psi.ArgumentList.Add("REG_SZ");
+            psi.ArgumentList.Add("/d");
+            psi.ArgumentList.Add($"\"{Application.ExecutablePath}\"");
+            psi.ArgumentList.Add("/f");
+        }
+        else
+        {
+            psi.ArgumentList.Add("delete");
+            psi.ArgumentList.Add($@"HKLM\{AutostartRegPath}");
+            psi.ArgumentList.Add("/v");
+            psi.ArgumentList.Add(AutostartValueName);
+            psi.ArgumentList.Add("/f");
+        }
+
+        try
+        {
+            using var proc = Process.Start(psi);
+            if (proc is null) return false;
+            await proc.WaitForExitAsync();
+            return proc.ExitCode == 0;
+        }
+        catch (System.ComponentModel.Win32Exception ex) when (ex.NativeErrorCode == 1223)
+        {
+            // ERROR_CANCELLED — user clicked No on the UAC prompt.
+            return false;
         }
     }
 
