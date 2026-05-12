@@ -192,7 +192,7 @@ public sealed class Worker : BackgroundService, IPipeOps
             }
 
             var breached = _tracker.Record(failure.Ip, failure.UtcTime);
-            _log.LogDebug(
+            _log.LogInformation(
                 "Failure recorded: ip={Ip} user={User} source={Source} breached={Breached}",
                 failure.Ip, failure.User, failure.Source, breached);
 
