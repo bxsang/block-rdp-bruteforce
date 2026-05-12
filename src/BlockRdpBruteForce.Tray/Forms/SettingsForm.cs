@@ -1,5 +1,8 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
+using System.Security.Principal;
+using System.ServiceProcess;
 using BlockRdpBruteForce.Detection;
 using BlockRdpBruteForce.Ipc;
 using Microsoft.Win32;
@@ -11,6 +14,8 @@ public sealed class SettingsForm : Form
 {
     private const string AutostartRegPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
     private const string AutostartValueName = "BlockRdpBruteForceTray";
+    private const string ServiceName = "BlockRdpBruteForce";
+    private static readonly TimeSpan ServiceWaitTimeout = TimeSpan.FromSeconds(30);
 
     private readonly PipeClient _client;
 
@@ -44,12 +49,23 @@ public sealed class SettingsForm : Form
     private readonly CheckBox _autostartEnabled;
     private readonly Label _autostartNote;
 
+    private readonly Label _serviceStatusLabel;
+    private readonly Button _serviceStartButton;
+    private readonly Button _serviceStopButton;
+    private readonly Button _serviceRestartButton;
+    private readonly Label _serviceNote;
+    private readonly ToolTip _serviceTooltip;
+    private readonly System.Windows.Forms.Timer _serviceStatusTimer;
+    private readonly bool _isAdmin;
+    private bool _serviceActionInFlight;
+
     private readonly TabControl _tabs;
     private readonly TabPage _generalTab;
     private readonly TabPage _whitelistTab;
     private readonly TabPage _geoTab;
     private readonly TabPage _updatesTab;
     private readonly TabPage _interfaceTab;
+    private readonly TabPage _serviceTab;
 
     private ConfigPayload? _loaded;
     private bool _suppressClosePrompt;
@@ -182,11 +198,42 @@ public sealed class SettingsForm : Form
             Padding = new Padding(0, 8, 0, 0),
         };
 
+        _isAdmin = IsRunningAsAdmin();
+        _serviceTooltip = new ToolTip();
+        _serviceStatusLabel = new Label
+        {
+            Text = "Status: checking…",
+            AutoSize = false,
+            Dock = DockStyle.Fill,
+            TextAlign = ContentAlignment.MiddleLeft,
+            AutoEllipsis = true,
+            Height = 28,
+        };
+        _serviceStartButton = new Button { Text = "Start", AutoSize = true, Anchor = AnchorStyles.Left };
+        _serviceStopButton = new Button { Text = "Stop", AutoSize = true, Anchor = AnchorStyles.Left };
+        _serviceRestartButton = new Button { Text = "Restart", AutoSize = true, Anchor = AnchorStyles.Left };
+        _serviceStartButton.Click += async (_, _) => await OnServiceStartAsync();
+        _serviceStopButton.Click += async (_, _) => await OnServiceStopAsync();
+        _serviceRestartButton.Click += async (_, _) => await OnServiceRestartAsync();
+        _serviceNote = new Label
+        {
+            Text = "Stopping the service halts active blocking until it is started again. "
+                 + "Existing firewall rules remain in place.",
+            AutoSize = false,
+            Dock = DockStyle.Top,
+            TextAlign = ContentAlignment.MiddleLeft,
+            ForeColor = SystemColors.GrayText,
+            Height = 36,
+        };
+        _serviceStatusTimer = new System.Windows.Forms.Timer { Interval = 2000 };
+        _serviceStatusTimer.Tick += async (_, _) => await RefreshServiceStatusAsync();
+
         _generalTab = BuildGeneralTab();
         _whitelistTab = BuildWhitelistTab();
         _geoTab = BuildGeoTab();
         _updatesTab = BuildUpdatesTab();
         _interfaceTab = BuildInterfaceTab();
+        _serviceTab = BuildServiceTab();
 
         _tabs = new TabControl { Dock = DockStyle.Fill };
         _tabs.TabPages.Add(_generalTab);
@@ -194,6 +241,7 @@ public sealed class SettingsForm : Form
         _tabs.TabPages.Add(_geoTab);
         _tabs.TabPages.Add(_updatesTab);
         _tabs.TabPages.Add(_interfaceTab);
+        _tabs.TabPages.Add(_serviceTab);
 
         var bottom = new TableLayoutPanel
         {
@@ -231,7 +279,13 @@ public sealed class SettingsForm : Form
         Controls.Add(_tabs);
         Controls.Add(bottom);
 
-        Shown += async (_, _) => await ReloadAsync();
+        Shown += async (_, _) =>
+        {
+            await ReloadAsync();
+            await RefreshServiceStatusAsync();
+            _serviceStatusTimer.Start();
+        };
+        FormClosed += (_, _) => _serviceStatusTimer.Stop();
         FormClosing += OnFormClosingPrompt;
     }
 
@@ -420,6 +474,238 @@ public sealed class SettingsForm : Form
         stack.Controls.Add(_autostartNote);
         page.Controls.Add(stack);
         return page;
+    }
+
+    private TabPage BuildServiceTab()
+    {
+        var page = new TabPage("Service") { Padding = new Padding(12), UseVisualStyleBackColor = true };
+
+        var statusRow = new TableLayoutPanel
+        {
+            Dock = DockStyle.Top,
+            ColumnCount = 1,
+            RowCount = 1,
+            AutoSize = true,
+            Height = 32,
+        };
+        statusRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        statusRow.Controls.Add(_serviceStatusLabel, 0, 0);
+
+        var buttons = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Top,
+            FlowDirection = FlowDirection.LeftToRight,
+            AutoSize = true,
+            WrapContents = false,
+            Padding = new Padding(0, 4, 0, 8),
+            Margin = Padding.Empty,
+        };
+        buttons.Controls.Add(_serviceStartButton);
+        buttons.Controls.Add(_serviceStopButton);
+        buttons.Controls.Add(_serviceRestartButton);
+
+        if (!_isAdmin)
+        {
+            const string tip = "Requires running the tray as Administrator. "
+                + "Use the tray's \"Restart as Administrator\" menu item.";
+            _serviceStartButton.Enabled = false;
+            _serviceStopButton.Enabled = false;
+            _serviceRestartButton.Enabled = false;
+            _serviceTooltip.SetToolTip(_serviceStartButton, tip);
+            _serviceTooltip.SetToolTip(_serviceStopButton, tip);
+            _serviceTooltip.SetToolTip(_serviceRestartButton, tip);
+        }
+
+        page.Controls.Add(_serviceNote);
+        page.Controls.Add(buttons);
+        page.Controls.Add(statusRow);
+        return page;
+    }
+
+    private static bool IsRunningAsAdmin()
+    {
+        var sid = new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null);
+        var sidBytes = new byte[sid.BinaryLength];
+        sid.GetBinaryForm(sidBytes, 0);
+        return CheckTokenMembership(IntPtr.Zero, sidBytes, out var isMember) && isMember;
+    }
+
+    [DllImport("advapi32.dll", SetLastError = true)]
+    private static extern bool CheckTokenMembership(
+        IntPtr tokenHandle, byte[] sidToCheck, out bool isMember);
+
+    private static ServiceControllerStatus? TryGetServiceStatus(out bool installed)
+    {
+        installed = false;
+        try
+        {
+            using var sc = new ServiceController(ServiceName);
+            var status = sc.Status;
+            installed = true;
+            return status;
+        }
+        catch (InvalidOperationException)
+        {
+            return null;
+        }
+        catch (System.ComponentModel.Win32Exception)
+        {
+            return null;
+        }
+    }
+
+    private async Task RefreshServiceStatusAsync()
+    {
+        var snapshot = await Task.Run(() =>
+        {
+            var status = TryGetServiceStatus(out var installed);
+            return (Installed: installed, Status: status);
+        });
+
+        if (IsDisposed) return;
+
+        if (!snapshot.Installed)
+        {
+            _serviceStatusLabel.Text = "Status: service not installed";
+            if (_isAdmin && !_serviceActionInFlight)
+            {
+                _serviceStartButton.Enabled = false;
+                _serviceStopButton.Enabled = false;
+                _serviceRestartButton.Enabled = false;
+            }
+            return;
+        }
+
+        _serviceStatusLabel.Text = $"Status: {DescribeStatus(snapshot.Status!.Value)}";
+
+        if (_isAdmin && !_serviceActionInFlight)
+            ApplyServiceButtonsForStatus(snapshot.Status.Value);
+    }
+
+    private void ApplyServiceButtonsForStatus(ServiceControllerStatus status)
+    {
+        _serviceStartButton.Enabled = status == ServiceControllerStatus.Stopped;
+        _serviceStopButton.Enabled =
+            status == ServiceControllerStatus.Running
+            || status == ServiceControllerStatus.Paused;
+        _serviceRestartButton.Enabled =
+            status == ServiceControllerStatus.Running
+            || status == ServiceControllerStatus.Paused;
+    }
+
+    private static string DescribeStatus(ServiceControllerStatus s) => s switch
+    {
+        ServiceControllerStatus.Running => "Running",
+        ServiceControllerStatus.Stopped => "Stopped",
+        ServiceControllerStatus.Paused => "Paused",
+        ServiceControllerStatus.StartPending => "Starting…",
+        ServiceControllerStatus.StopPending => "Stopping…",
+        ServiceControllerStatus.PausePending => "Pausing…",
+        ServiceControllerStatus.ContinuePending => "Resuming…",
+        _ => s.ToString(),
+    };
+
+    private async Task OnServiceStartAsync()
+    {
+        await RunServiceActionAsync("Starting…", "Service started.", sc =>
+        {
+            if (sc.Status == ServiceControllerStatus.Running) return;
+            if (sc.Status != ServiceControllerStatus.StartPending) sc.Start();
+            sc.WaitForStatus(ServiceControllerStatus.Running, ServiceWaitTimeout);
+        });
+    }
+
+    private async Task OnServiceStopAsync()
+    {
+        var confirm = MessageBox.Show(this,
+            "Stop the BlockRdpBruteForce service?\n\n"
+          + "Active blocking will stop until the service is started again. "
+          + "Existing firewall rules remain in place.",
+            "Stop service",
+            MessageBoxButtons.YesNo,
+            MessageBoxIcon.Warning,
+            MessageBoxDefaultButton.Button2);
+        if (confirm != DialogResult.Yes) return;
+
+        await RunServiceActionAsync("Stopping…", "Service stopped.", sc =>
+        {
+            if (sc.Status == ServiceControllerStatus.Stopped) return;
+            if (sc.CanStop) sc.Stop();
+            sc.WaitForStatus(ServiceControllerStatus.Stopped, ServiceWaitTimeout);
+        });
+    }
+
+    private async Task OnServiceRestartAsync()
+    {
+        var confirm = MessageBox.Show(this,
+            "Restart the BlockRdpBruteForce service?\n\n"
+          + "Blocking will pause for a few seconds while the service restarts.",
+            "Restart service",
+            MessageBoxButtons.YesNo,
+            MessageBoxIcon.Question,
+            MessageBoxDefaultButton.Button1);
+        if (confirm != DialogResult.Yes) return;
+
+        await RunServiceActionAsync("Restarting…", "Service restarted.", sc =>
+        {
+            if (sc.Status != ServiceControllerStatus.Stopped)
+            {
+                if (sc.CanStop) sc.Stop();
+                sc.WaitForStatus(ServiceControllerStatus.Stopped, ServiceWaitTimeout);
+                sc.Refresh();
+            }
+            sc.Start();
+            sc.WaitForStatus(ServiceControllerStatus.Running, ServiceWaitTimeout);
+        });
+    }
+
+    private async Task RunServiceActionAsync(
+        string pendingText, string successText, Action<ServiceController> action)
+    {
+        _serviceActionInFlight = true;
+        _serviceStartButton.Enabled = false;
+        _serviceStopButton.Enabled = false;
+        _serviceRestartButton.Enabled = false;
+        _serviceStatusLabel.Text = $"Status: {pendingText}";
+
+        try
+        {
+            await Task.Run(() =>
+            {
+                using var sc = new ServiceController(ServiceName);
+                action(sc);
+            });
+            _statusLabel.Text = successText;
+        }
+        catch (System.ServiceProcess.TimeoutException ex)
+        {
+            MessageBox.Show(this,
+                $"The service did not reach the expected state in {ServiceWaitTimeout.TotalSeconds:0}s: {ex.Message}",
+                "Service action timed out",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Warning);
+            _statusLabel.Text = $"Error: {ex.Message}";
+        }
+        catch (InvalidOperationException ex)
+        {
+            MessageBox.Show(this,
+                ex.Message + "\n\nThe service may not be installed, or you lack permission to control it.",
+                "Service action failed",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Warning);
+            _statusLabel.Text = $"Error: {ex.Message}";
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, ex.Message, "Service action failed",
+                MessageBoxButtons.OK, MessageBoxIcon.Error);
+            _statusLabel.Text = $"Error: {ex.Message}";
+        }
+        finally
+        {
+            _serviceActionInFlight = false;
+            await RefreshServiceStatusAsync();
+        }
     }
 
     private void LoadAutostartState()

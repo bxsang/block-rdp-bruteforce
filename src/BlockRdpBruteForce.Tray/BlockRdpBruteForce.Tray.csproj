@@ -12,6 +12,7 @@
     <ProjectReference Include="..\BlockRdpBruteForce\BlockRdpBruteForce.csproj">
       <UndefineProperties>RuntimeIdentifier;SelfContained;PublishSingleFile</UndefineProperties>
     </ProjectReference>
+    <PackageReference Include="System.ServiceProcess.ServiceController" Version="10.0.7" />
   </ItemGroup>
 
   <PropertyGroup>
