@@ -64,6 +64,9 @@ jobs:
       - name: Publish tray (${{ matrix.variant }})
         run: dotnet publish src/BlockRdpBruteForce.Tray -c Release -r win-x64 ${{ matrix.publish_flag }} -p:PublishSingleFile=true -p:Version=${{ steps.version.outputs.version }}
 
+      - name: Publish updater (${{ matrix.variant }})
+        run: dotnet publish src/BlockRdpBruteForce.Updater -c Release -r win-x64 ${{ matrix.publish_flag }} -p:PublishSingleFile=true -p:Version=${{ steps.version.outputs.version }}
+
       - name: Build MSI (${{ matrix.variant }})
         run: dotnet build installer/BlockRdpBruteForce.Installer.wixproj -c Release
 
