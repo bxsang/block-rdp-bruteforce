@@ -2,12 +2,16 @@ using System.Diagnostics;
 using System.Runtime.Versioning;
 using BlockRdpBruteForce.Detection;
 using BlockRdpBruteForce.Ipc;
+using Microsoft.Win32;
 
 namespace BlockRdpBruteForce.Tray.Forms;
 
 [SupportedOSPlatform("windows")]
 public sealed class SettingsForm : Form
 {
+    private const string AutostartRegPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
+    private const string AutostartValueName = "BlockRdpBruteForceTray";
+
     private readonly PipeClient _client;
 
     private readonly NumericUpDown _failureThreshold;
@@ -37,34 +41,29 @@ public sealed class SettingsForm : Form
     private readonly Label _updateStatus;
     private string? _availableUpdateVersion;
 
+    private readonly CheckBox _autostartEnabled;
+    private readonly Label _autostartNote;
+
+    private readonly TabControl _tabs;
+    private readonly TabPage _generalTab;
+    private readonly TabPage _whitelistTab;
+    private readonly TabPage _geoTab;
+    private readonly TabPage _updatesTab;
+    private readonly TabPage _interfaceTab;
+
     private ConfigPayload? _loaded;
+    private bool _suppressClosePrompt;
 
     public SettingsForm(PipeClient client)
     {
         _client = client;
 
         Text = "BlockRdpBruteForce — Settings";
-        Width = 600;
-        Height = 820;
+        Width = 620;
+        Height = 540;
         StartPosition = FormStartPosition.CenterScreen;
-        MinimumSize = new Size(540, 720);
+        MinimumSize = new Size(560, 480);
         FormBorderStyle = FormBorderStyle.Sizable;
-
-        var layout = new TableLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            ColumnCount = 2,
-            RowCount = 9,
-            Padding = new Padding(12),
-            AutoSize = false,
-        };
-        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 200));
-        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        for (var i = 0; i < 6; i++)
-            layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
         _failureThreshold = NewSpinner(1, 1000);
         _slidingWindow = NewSpinner(1, 1440);
@@ -84,54 +83,9 @@ public sealed class SettingsForm : Form
             AutoSize = true,
         };
 
-        AddRow(layout, 0, "Failure threshold (count):", _failureThreshold);
-        AddRow(layout, 1, "Sliding window (minutes):", _slidingWindow);
-        AddRow(layout, 2, "Block duration (minutes, 0 = permanent):", _blockDuration);
-        AddRow(layout, 3, "Firewall scope:", _firewallScope);
-        AddRow(layout, 4, string.Empty, _evaluateNla);
-        AddRow(layout, 5, "History retention (days, 0 = keep forever):", _historyRetention);
-
-        var whitelistGroup = new GroupBox
-        {
-            Text = "Whitelist (IP or CIDR — applied immediately)",
-            Dock = DockStyle.Fill,
-        };
-        var whitelistLayout = new TableLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            ColumnCount = 2,
-            RowCount = 2,
-            Padding = new Padding(8),
-        };
-        whitelistLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        whitelistLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 110));
-        whitelistLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        whitelistLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-
         _whitelistBox = new ListBox { Dock = DockStyle.Fill };
         _addWhitelist = new Button { Text = "Add…", Dock = DockStyle.Fill, Height = 28 };
         _removeWhitelist = new Button { Text = "Remove", Dock = DockStyle.Fill, Height = 28 };
-        var sideButtons = new TableLayoutPanel
-        {
-            Dock = DockStyle.Top,
-            ColumnCount = 1,
-            RowCount = 2,
-            AutoSize = true,
-        };
-        sideButtons.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        sideButtons.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        sideButtons.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        sideButtons.Controls.Add(_addWhitelist, 0, 0);
-        sideButtons.Controls.Add(_removeWhitelist, 0, 1);
-
-        whitelistLayout.Controls.Add(_whitelistBox, 0, 0);
-        whitelistLayout.Controls.Add(sideButtons, 1, 0);
-        whitelistLayout.SetRowSpan(_whitelistBox, 2);
-        whitelistGroup.Controls.Add(whitelistLayout);
-
-        layout.Controls.Add(whitelistGroup, 0, 6);
-        layout.SetColumnSpan(whitelistGroup, 2);
-
         _addWhitelist.Click += (_, _) => OnAddWhitelist();
         _removeWhitelist.Click += async (_, _) => await OnRemoveWhitelistAsync();
 
@@ -169,10 +123,6 @@ public sealed class SettingsForm : Form
             AutoEllipsis = true,
             Height = 36,
         };
-
-        var geoGroup = BuildGeoGroup();
-        layout.Controls.Add(geoGroup, 0, 7);
-        layout.SetColumnSpan(geoGroup, 2);
 
         _updateEnabled = new CheckBox
         {
@@ -214,9 +164,36 @@ public sealed class SettingsForm : Form
             Height = 36,
         };
 
-        var updateGroup = BuildUpdateGroup();
-        layout.Controls.Add(updateGroup, 0, 8);
-        layout.SetColumnSpan(updateGroup, 2);
+        _autostartEnabled = new CheckBox
+        {
+            Text = "Start BlockRdpBruteForce tray when I sign in",
+            AutoSize = true,
+            Anchor = AnchorStyles.Left,
+        };
+        _autostartEnabled.CheckedChanged += OnAutostartToggled;
+        _autostartNote = new Label
+        {
+            AutoSize = false,
+            Dock = DockStyle.Top,
+            TextAlign = ContentAlignment.MiddleLeft,
+            AutoEllipsis = true,
+            Height = 36,
+            ForeColor = SystemColors.GrayText,
+            Padding = new Padding(0, 8, 0, 0),
+        };
+
+        _generalTab = BuildGeneralTab();
+        _whitelistTab = BuildWhitelistTab();
+        _geoTab = BuildGeoTab();
+        _updatesTab = BuildUpdatesTab();
+        _interfaceTab = BuildInterfaceTab();
+
+        _tabs = new TabControl { Dock = DockStyle.Fill };
+        _tabs.TabPages.Add(_generalTab);
+        _tabs.TabPages.Add(_whitelistTab);
+        _tabs.TabPages.Add(_geoTab);
+        _tabs.TabPages.Add(_updatesTab);
+        _tabs.TabPages.Add(_interfaceTab);
 
         var bottom = new TableLayoutPanel
         {
@@ -251,62 +228,104 @@ public sealed class SettingsForm : Form
         bottom.Controls.Add(_applyButton, 2, 0);
         bottom.Controls.Add(_closeButton, 3, 0);
 
-        Controls.Add(layout);
+        Controls.Add(_tabs);
         Controls.Add(bottom);
 
         Shown += async (_, _) => await ReloadAsync();
+        FormClosing += OnFormClosingPrompt;
     }
 
-    private static NumericUpDown NewSpinner(int min, int max) => new()
+    private TabPage BuildGeneralTab()
     {
-        Minimum = min,
-        Maximum = max,
-        Anchor = AnchorStyles.Left,
-        Width = 120,
-    };
-
-    private static void AddRow(TableLayoutPanel host, int row, string label, Control control)
-    {
-        host.Controls.Add(new Label
+        var page = new TabPage("General") { Padding = new Padding(12), UseVisualStyleBackColor = true };
+        var layout = new TableLayoutPanel
         {
-            Text = label,
-            TextAlign = ContentAlignment.MiddleLeft,
-            Dock = DockStyle.Fill,
-            AutoEllipsis = true,
-        }, 0, row);
-        host.Controls.Add(control, 1, row);
-    }
-
-    private GroupBox BuildGeoGroup()
-    {
-        var group = new GroupBox
-        {
-            Text = "IP Geolocation (IPinfo Lite — CC BY-SA 4.0)",
-            Dock = DockStyle.Fill,
+            Dock = DockStyle.Top,
+            ColumnCount = 2,
+            RowCount = 6,
             AutoSize = true,
             AutoSizeMode = AutoSizeMode.GrowAndShrink,
         };
+        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 280));
+        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        for (var i = 0; i < 6; i++)
+            layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+
+        AddRow(layout, 0, "Failure threshold (count):", _failureThreshold);
+        AddRow(layout, 1, "Sliding window (minutes):", _slidingWindow);
+        AddRow(layout, 2, "Block duration (minutes, 0 = permanent):", _blockDuration);
+        AddRow(layout, 3, "History retention (days, 0 = keep forever):", _historyRetention);
+        AddRow(layout, 4, "Firewall scope:", _firewallScope);
+        AddRow(layout, 5, string.Empty, _evaluateNla);
+
+        page.Controls.Add(layout);
+        return page;
+    }
+
+    private TabPage BuildWhitelistTab()
+    {
+        var page = new TabPage("Whitelist") { Padding = new Padding(12), UseVisualStyleBackColor = true };
+        var note = new Label
+        {
+            Text = "Whitelisted IPs and CIDR ranges are never blocked. Edits are saved immediately.",
+            Dock = DockStyle.Top,
+            AutoSize = false,
+            Height = 32,
+            TextAlign = ContentAlignment.MiddleLeft,
+            ForeColor = SystemColors.GrayText,
+        };
+        var layout = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 2,
+            RowCount = 1,
+        };
+        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 110));
+        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+
+        var sideButtons = new TableLayoutPanel
+        {
+            Dock = DockStyle.Top,
+            ColumnCount = 1,
+            RowCount = 2,
+            AutoSize = true,
+        };
+        sideButtons.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        sideButtons.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        sideButtons.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        sideButtons.Controls.Add(_addWhitelist, 0, 0);
+        sideButtons.Controls.Add(_removeWhitelist, 0, 1);
+
+        layout.Controls.Add(_whitelistBox, 0, 0);
+        layout.Controls.Add(sideButtons, 1, 0);
+
+        page.Controls.Add(layout);
+        page.Controls.Add(note);
+        return page;
+    }
+
+    private TabPage BuildGeoTab()
+    {
+        var page = new TabPage("GeoIP") { Padding = new Padding(12), UseVisualStyleBackColor = true };
 
         var inner = new TableLayoutPanel
         {
             Dock = DockStyle.Top,
             ColumnCount = 3,
-            RowCount = 5,
-            Padding = new Padding(8),
+            RowCount = 4,
             AutoSize = true,
             AutoSizeMode = AutoSizeMode.GrowAndShrink,
         };
         inner.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 180));
         inner.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         inner.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        for (var i = 0; i < 5; i++)
+        for (var i = 0; i < 4; i++)
             inner.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
-        // Row 0: enable checkbox spans columns
         inner.Controls.Add(_geoEnabled, 0, 0);
         inner.SetColumnSpan(_geoEnabled, 3);
 
-        // Row 1: token + link
         inner.Controls.Add(NewLabel("IPinfo token:"), 0, 1);
         inner.Controls.Add(_geoToken, 1, 1);
         var link = new LinkLabel
@@ -319,35 +338,36 @@ public sealed class SettingsForm : Form
         link.LinkClicked += (_, _) => OpenUrl("https://ipinfo.io/lite");
         inner.Controls.Add(link, 2, 1);
 
-        // Row 2: interval
         inner.Controls.Add(NewLabel("Refresh every (days):"), 0, 2);
         inner.Controls.Add(_geoInterval, 1, 2);
 
-        // Row 3: refresh button + status
         inner.Controls.Add(_geoRefresh, 0, 3);
         inner.Controls.Add(_geoStatus, 1, 3);
         inner.SetColumnSpan(_geoStatus, 2);
 
-        group.Controls.Add(inner);
-        return group;
-    }
-
-    private GroupBox BuildUpdateGroup()
-    {
-        var group = new GroupBox
+        var attribution = new Label
         {
-            Text = "Auto-update (checks GitHub releases)",
-            Dock = DockStyle.Fill,
-            AutoSize = true,
-            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            Text = "Uses IPinfo Lite (CC BY-SA 4.0). Database lives in %ProgramData%\\BlockRdpBruteForce\\geo.",
+            Dock = DockStyle.Bottom,
+            Height = 28,
+            TextAlign = ContentAlignment.MiddleLeft,
+            AutoEllipsis = true,
+            ForeColor = SystemColors.GrayText,
         };
 
+        page.Controls.Add(inner);
+        page.Controls.Add(attribution);
+        return page;
+    }
+
+    private TabPage BuildUpdatesTab()
+    {
+        var page = new TabPage("Updates") { Padding = new Padding(12), UseVisualStyleBackColor = true };
         var inner = new TableLayoutPanel
         {
             Dock = DockStyle.Top,
             ColumnCount = 3,
             RowCount = 4,
-            Padding = new Padding(8),
             AutoSize = true,
             AutoSizeMode = AutoSizeMode.GrowAndShrink,
         };
@@ -380,8 +400,155 @@ public sealed class SettingsForm : Form
         inner.Controls.Add(_updateStatus, 0, 3);
         inner.SetColumnSpan(_updateStatus, 3);
 
-        group.Controls.Add(inner);
-        return group;
+        page.Controls.Add(inner);
+        return page;
+    }
+
+    private TabPage BuildInterfaceTab()
+    {
+        var page = new TabPage("Interface") { Padding = new Padding(12), UseVisualStyleBackColor = true };
+        var stack = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Top,
+            FlowDirection = FlowDirection.TopDown,
+            WrapContents = false,
+            AutoSize = true,
+            Padding = Padding.Empty,
+            Margin = Padding.Empty,
+        };
+        stack.Controls.Add(_autostartEnabled);
+        stack.Controls.Add(_autostartNote);
+        page.Controls.Add(stack);
+        return page;
+    }
+
+    private void LoadAutostartState()
+    {
+        var hkcuSet = false;
+        try
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(AutostartRegPath, writable: false);
+            hkcuSet = key?.GetValue(AutostartValueName) is string s && !string.IsNullOrEmpty(s);
+        }
+        catch { }
+
+        var hklmSet = false;
+        try
+        {
+            using var key = Registry.LocalMachine.OpenSubKey(AutostartRegPath, writable: false);
+            hklmSet = key?.GetValue(AutostartValueName) is not null;
+        }
+        catch { }
+
+        _autostartEnabled.CheckedChanged -= OnAutostartToggled;
+        _autostartEnabled.Checked = hkcuSet || hklmSet;
+        // When the MSI owns the HKLM value, the checkbox reflects the effective state
+        // but can't be flipped from here — disable it and explain.
+        _autostartEnabled.Enabled = !hklmSet;
+        _autostartEnabled.CheckedChanged += OnAutostartToggled;
+
+        _autostartNote.Text = hklmSet
+            ? "Managed by the installer for all users (HKLM). To change it, re-run the installer " +
+              "or remove the BlockRdpBruteForceTray value under HKLM\\…\\CurrentVersion\\Run."
+            : "Toggles a HKCU\\…\\Run entry. No admin needed; affects this user only.";
+    }
+
+    private void OnAutostartToggled(object? sender, EventArgs e)
+    {
+        try
+        {
+            using var key = Registry.CurrentUser.CreateSubKey(AutostartRegPath, writable: true);
+            if (key is null) return;
+            if (_autostartEnabled.Checked)
+            {
+                var path = Application.ExecutablePath;
+                key.SetValue(AutostartValueName, $"\"{path}\"", RegistryValueKind.String);
+                _statusLabel.Text = "Autostart enabled for this user.";
+            }
+            else
+            {
+                key.DeleteValue(AutostartValueName, throwOnMissingValue: false);
+                _statusLabel.Text = "Autostart disabled for this user.";
+            }
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, ex.Message, "Could not change autostart",
+                MessageBoxButtons.OK, MessageBoxIcon.Error);
+            _autostartEnabled.CheckedChanged -= OnAutostartToggled;
+            _autostartEnabled.Checked = !_autostartEnabled.Checked;
+            _autostartEnabled.CheckedChanged += OnAutostartToggled;
+        }
+    }
+
+    private bool IsDirty()
+    {
+        if (_loaded is null) return false;
+        if ((int)_failureThreshold.Value != _loaded.FailureThreshold) return true;
+        if ((int)_slidingWindow.Value != _loaded.SlidingWindowMinutes) return true;
+        if ((int)_blockDuration.Value != _loaded.BlockDurationMinutes) return true;
+        if ((int)_historyRetention.Value != _loaded.HistoryRetentionDays) return true;
+        var scope = _firewallScope.SelectedItem as string ?? "AllPorts";
+        if (!string.Equals(scope, _loaded.FirewallScope, StringComparison.Ordinal)) return true;
+        if (_evaluateNla.Checked != _loaded.EvaluateNlaFallback) return true;
+        if (_geoEnabled.Checked != _loaded.GeoLookupEnabled) return true;
+        if (!string.Equals(_geoToken.Text, _loaded.IpInfoToken ?? string.Empty, StringComparison.Ordinal)) return true;
+        if ((int)_geoInterval.Value != _loaded.GeoRefreshIntervalDays) return true;
+        if (_updateEnabled.Checked != _loaded.AutoUpdateEnabled) return true;
+        if ((int)_updateInterval.Value != _loaded.AutoUpdateCheckIntervalHours) return true;
+        return false;
+    }
+
+    private async void OnFormClosingPrompt(object? sender, FormClosingEventArgs e)
+    {
+        if (_suppressClosePrompt || !IsDirty()) return;
+
+        var choice = MessageBox.Show(this,
+            "You have unsaved changes. Apply them before closing?",
+            "Unsaved changes",
+            MessageBoxButtons.YesNoCancel,
+            MessageBoxIcon.Question,
+            MessageBoxDefaultButton.Button1);
+
+        switch (choice)
+        {
+            case DialogResult.Yes:
+                e.Cancel = true;
+                await ApplyAsync();
+                if (!IsDirty())
+                {
+                    _suppressClosePrompt = true;
+                    Close();
+                }
+                break;
+            case DialogResult.No:
+                _suppressClosePrompt = true;
+                break;
+            case DialogResult.Cancel:
+            default:
+                e.Cancel = true;
+                break;
+        }
+    }
+
+    private static NumericUpDown NewSpinner(int min, int max) => new()
+    {
+        Minimum = min,
+        Maximum = max,
+        Anchor = AnchorStyles.Left,
+        Width = 120,
+    };
+
+    private static void AddRow(TableLayoutPanel host, int row, string label, Control control)
+    {
+        host.Controls.Add(new Label
+        {
+            Text = label,
+            TextAlign = ContentAlignment.MiddleLeft,
+            Dock = DockStyle.Fill,
+            AutoEllipsis = true,
+        }, 0, row);
+        host.Controls.Add(control, 1, row);
     }
 
     private async Task OnUpdateCheckNowAsync()
@@ -443,6 +610,7 @@ public sealed class SettingsForm : Form
 
             // MSI will replace our exe — exit so it can.
             await Task.Delay(1500);
+            _suppressClosePrompt = true;
             Application.Exit();
         }
         catch (InvalidOperationException ex)
@@ -532,6 +700,8 @@ public sealed class SettingsForm : Form
 
             _updateEnabled.Checked = c.AutoUpdateEnabled ?? true;
             _updateInterval.Value = Clamp(c.AutoUpdateCheckIntervalHours ?? 24, _updateInterval);
+
+            LoadAutostartState();
 
             await UpdateGeoStatusAsync();
             await UpdateUpdateStatusAsync();
@@ -680,6 +850,10 @@ public sealed class SettingsForm : Form
             await UpdateGeoStatusAsync();
             await UpdateUpdateStatusAsync();
         }
+        catch (PipeValidationException ex)
+        {
+            ShowValidationError(ex);
+        }
         catch (InvalidOperationException ex)
         {
             ShowAdminError("Could not apply settings", ex);
@@ -741,6 +915,10 @@ public sealed class SettingsForm : Form
                 _whitelistBox.Items.Add(w);
             ShowResult(result);
         }
+        catch (PipeValidationException ex)
+        {
+            ShowValidationError(ex);
+        }
         catch (InvalidOperationException ex)
         {
             ShowAdminError(add ? "Could not add to whitelist" : "Could not remove from whitelist", ex);
@@ -764,6 +942,19 @@ public sealed class SettingsForm : Form
             MessageBoxButtons.OK,
             MessageBoxIcon.Warning);
         _statusLabel.Text = $"Error: {ex.Message}";
+    }
+
+    private void ShowValidationError(PipeValidationException ex)
+    {
+        MessageBox.Show(this,
+            ex.Message,
+            "Cannot apply settings",
+            MessageBoxButtons.OK,
+            MessageBoxIcon.Warning);
+        _statusLabel.Text = $"Rejected: {ex.Message}";
+        _tabs.SelectedTab = _generalTab;
+        _failureThreshold.Focus();
+        _failureThreshold.Select(0, _failureThreshold.Text.Length);
     }
 
     private void ShowResult(ConfigSetResult result)

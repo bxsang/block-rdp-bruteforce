@@ -35,6 +35,7 @@ public sealed class PipeResponse
 {
     public bool Ok { get; set; }
     public string? Error { get; set; }
+    public string? ErrorCode { get; set; }
     public StatusPayload? Status { get; set; }
     public List<IpEntry>? Items { get; set; }
     public UnblockPayload? Unblock { get; set; }
@@ -46,6 +47,16 @@ public sealed class PipeResponse
     public UpdateApplyPayload? UpdateApply { get; set; }
 
     public static PipeResponse Failure(string message) => new() { Ok = false, Error = message };
+    public static PipeResponse Forbidden(string message) =>
+        new() { Ok = false, Error = message, ErrorCode = ErrorCodes.Forbidden };
+    public static PipeResponse Validation(string message) =>
+        new() { Ok = false, Error = message, ErrorCode = ErrorCodes.Validation };
+}
+
+public static class ErrorCodes
+{
+    public const string Forbidden = "forbidden";
+    public const string Validation = "validation";
 }
 
 public sealed class ConfigPayload

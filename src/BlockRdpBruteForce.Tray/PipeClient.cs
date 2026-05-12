@@ -99,7 +99,15 @@ public sealed class PipeClient
             ?? throw new IOException("invalid response from service");
 
         if (!response.Ok)
-            throw new InvalidOperationException(response.Error ?? "service returned error");
+        {
+            var message = response.Error ?? "service returned error";
+            throw response.ErrorCode switch
+            {
+                ErrorCodes.Forbidden => new PipeForbiddenException(message),
+                ErrorCodes.Validation => new PipeValidationException(message),
+                _ => new InvalidOperationException(message),
+            };
+        }
 
         return select(response);
     }
@@ -124,4 +132,16 @@ public sealed class PipeClient
             if (ms.Length > 256 * 1024) return ms.ToArray();
         }
     }
+}
+
+[SupportedOSPlatform("windows")]
+public sealed class PipeForbiddenException : InvalidOperationException
+{
+    public PipeForbiddenException(string message) : base(message) { }
+}
+
+[SupportedOSPlatform("windows")]
+public sealed class PipeValidationException : InvalidOperationException
+{
+    public PipeValidationException(string message) : base(message) { }
 }

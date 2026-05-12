@@ -156,14 +156,14 @@ public sealed class PipeServer : BackgroundService
                     return PipeResponse.Failure("ip required");
                 if (!IPAddress.TryParse(request.Ip.Trim(), out var ip))
                     return PipeResponse.Failure($"invalid ip: {request.Ip}");
-                if (!RequireAdmin(pipe)) return PipeResponse.Failure("administrator required");
+                if (!RequireAdmin(pipe)) return PipeResponse.Forbidden("administrator required");
                 var payload = await ops.UnblockAsync(ip, ct).ConfigureAwait(false);
                 return new PipeResponse { Ok = true, Unblock = payload };
             }
 
             case PipeOps.Pause:
             {
-                if (!RequireAdmin(pipe)) return PipeResponse.Failure("administrator required");
+                if (!RequireAdmin(pipe)) return PipeResponse.Forbidden("administrator required");
                 var minutes = request.PauseMinutes ?? 60;
                 if (minutes <= 0) return PipeResponse.Failure("pauseMinutes must be > 0");
                 var payload = ops.Pause(TimeSpan.FromMinutes(minutes));
@@ -172,20 +172,20 @@ public sealed class PipeServer : BackgroundService
 
             case PipeOps.Resume:
             {
-                if (!RequireAdmin(pipe)) return PipeResponse.Failure("administrator required");
+                if (!RequireAdmin(pipe)) return PipeResponse.Forbidden("administrator required");
                 var payload = ops.Resume();
                 return new PipeResponse { Ok = true, Pause = payload };
             }
 
             case PipeOps.ConfigGet:
             {
-                if (!RequireAdmin(pipe)) return PipeResponse.Failure("administrator required");
+                if (!RequireAdmin(pipe)) return PipeResponse.Forbidden("administrator required");
                 return new PipeResponse { Ok = true, ConfigEffective = ops.GetConfig() };
             }
 
             case PipeOps.ConfigSet:
             {
-                if (!RequireAdmin(pipe)) return PipeResponse.Failure("administrator required");
+                if (!RequireAdmin(pipe)) return PipeResponse.Forbidden("administrator required");
                 if (request.Config is null) return PipeResponse.Failure("config payload required");
                 try
                 {
@@ -195,14 +195,14 @@ public sealed class PipeServer : BackgroundService
                 }
                 catch (ConfigValidationException ex)
                 {
-                    return PipeResponse.Failure(ex.Message);
+                    return PipeResponse.Validation(ex.Message);
                 }
             }
 
             case PipeOps.WhitelistAdd:
             case PipeOps.WhitelistRemove:
             {
-                if (!RequireAdmin(pipe)) return PipeResponse.Failure("administrator required");
+                if (!RequireAdmin(pipe)) return PipeResponse.Forbidden("administrator required");
                 if (string.IsNullOrWhiteSpace(request.Cidr))
                     return PipeResponse.Failure("cidr required");
 
@@ -228,7 +228,7 @@ public sealed class PipeServer : BackgroundService
                 }
                 catch (ConfigValidationException ex)
                 {
-                    return PipeResponse.Failure(ex.Message);
+                    return PipeResponse.Validation(ex.Message);
                 }
             }
 
@@ -237,7 +237,7 @@ public sealed class PipeServer : BackgroundService
 
             case PipeOps.GeoRefresh:
             {
-                if (!RequireAdmin(pipe)) return PipeResponse.Failure("administrator required");
+                if (!RequireAdmin(pipe)) return PipeResponse.Forbidden("administrator required");
                 try
                 {
                     var status = await ops.RefreshGeoAsync(ct).ConfigureAwait(false);
