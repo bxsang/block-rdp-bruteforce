@@ -339,6 +339,11 @@ The .mmdb file is not redistributed with this project — it is downloaded
 on demand from IPinfo when the admin enables the feature and provides a
 free token.
 
+Country flag icons in the Blocked IPs grid are from
+[Twemoji](https://github.com/jdecked/twemoji), Copyright Twitter, Inc and
+other contributors, licensed under
+[CC-BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+
 ## License
 
 MIT — see [LICENSE](LICENSE).

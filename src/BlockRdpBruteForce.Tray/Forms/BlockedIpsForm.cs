@@ -39,7 +39,7 @@ public sealed class BlockedIpsForm : Form
             BackgroundColor = SystemColors.Window,
         };
         _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "Ip", HeaderText = "IP", SortMode = DataGridViewColumnSortMode.Automatic });
-        _grid.Columns.Add(new DataGridViewTextBoxColumn
+        _grid.Columns.Add(new DataGridViewImageColumn
         {
             Name = "Flag",
             HeaderText = "",
@@ -47,10 +47,14 @@ public sealed class BlockedIpsForm : Form
             AutoSizeMode = DataGridViewAutoSizeColumnMode.None,
             Resizable = DataGridViewTriState.False,
             SortMode = DataGridViewColumnSortMode.NotSortable,
+            ImageLayout = DataGridViewImageCellLayout.Zoom,
             DefaultCellStyle = new DataGridViewCellStyle
             {
-                Font = new Font("Segoe UI Emoji", 11f),
                 Alignment = DataGridViewContentAlignment.MiddleCenter,
+                // Image cells default to "no value" rendering an error glyph
+                // when the cell is empty; clear it so unknown countries show
+                // a blank cell instead.
+                NullValue = null,
             },
         });
         _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "Country", HeaderText = "Country", SortMode = DataGridViewColumnSortMode.Automatic, FillWeight = 50 });
@@ -155,9 +159,11 @@ public sealed class BlockedIpsForm : Form
 
                 if (!isActive && !showHistory) continue;
 
+                // The Flag cell accepts null (NullValue = null on the column),
+                // so suppress the nullable-element warning from params object[].
                 var rowIndex = _grid.Rows.Add(
                     e.Ip,
-                    CountryCodeToFlag(e.CountryCode),
+                    FlagImageProvider.Get(e.CountryCode)!,
                     e.CountryCode ?? string.Empty,
                     e.Asn ?? string.Empty,
                     e.AsName ?? string.Empty,
@@ -186,15 +192,6 @@ public sealed class BlockedIpsForm : Form
         {
             _statusLabel.Text = $"Error: {ex.Message}";
         }
-    }
-
-    private static string CountryCodeToFlag(string? code)
-    {
-        if (string.IsNullOrEmpty(code) || code.Length != 2) return string.Empty;
-        var c0 = char.ToUpperInvariant(code[0]);
-        var c1 = char.ToUpperInvariant(code[1]);
-        if (c0 < 'A' || c0 > 'Z' || c1 < 'A' || c1 > 'Z') return string.Empty;
-        return char.ConvertFromUtf32(0x1F1E6 + (c0 - 'A')) + char.ConvertFromUtf32(0x1F1E6 + (c1 - 'A'));
     }
 
     private void CopySelectedIp()
