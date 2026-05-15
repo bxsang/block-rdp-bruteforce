@@ -6,7 +6,11 @@ public sealed class AppOptions
 
     public int FailureThreshold { get; set; } = 5;
     public int SlidingWindowMinutes { get; set; } = 10;
-    public List<int> BlockDurationMinutes { get; set; } = new() { 1440 };
+    // Must default to empty: the configuration list binder appends to the
+    // initializer's items rather than replacing them, so a non-empty default
+    // here would be concatenated with the shipped appsettings.json array
+    // (e.g. shipped [1440] + initializer [1440] => [1440, 1440]).
+    public List<int> BlockDurationMinutes { get; set; } = new();
     public List<string> Whitelist { get; set; } = new();
     public string FirewallRuleName { get; set; } = "BlockRDPBruteForce";
     public string FirewallScope { get; set; } = "AllPorts";
