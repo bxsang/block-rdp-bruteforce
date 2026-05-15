@@ -357,33 +357,26 @@ public sealed class LogViewerForm : Form
         var visible = 0;
         var hidden = 0;
 
-        SendMessage(_content.Handle, WM_SETREDRAW, IntPtr.Zero, IntPtr.Zero);
-        try
+        // No WM_SETREDRAW suspension here: it leaves RichEdit's internal layout
+        // cache stale, so re-enabling redraw paints a blank/partial control until
+        // something (selection, scroll, focus change) forces a re-rasterization.
+        // Render is synchronous on the UI thread, so the AppendText calls below
+        // coalesce into a single paint after this method returns — no flicker.
+        _content.Clear();
+        foreach (var e in _entries)
         {
-            _content.Clear();
-            foreach (var e in _entries)
+            if (!LevelEnabled(e.Level)) { hidden++; continue; }
+            if (hasFind && e.Body.IndexOf(find, StringComparison.OrdinalIgnoreCase) < 0)
             {
-                if (!LevelEnabled(e.Level)) { hidden++; continue; }
-                if (hasFind && e.Body.IndexOf(find, StringComparison.OrdinalIgnoreCase) < 0)
-                {
-                    hidden++;
-                    continue;
-                }
-
-                _content.SelectionStart = _content.TextLength;
-                _content.SelectionLength = 0;
-                _content.SelectionColor = LevelColor(e.Level);
-                _content.AppendText(e.Body + "\n");
-                visible++;
+                hidden++;
+                continue;
             }
-        }
-        finally
-        {
-            SendMessage(_content.Handle, WM_SETREDRAW, (IntPtr)1, IntPtr.Zero);
-            // Refresh = Invalidate + Update. Just Invalidate is not enough here:
-            // after WM_SETREDRAW toggles, the control's cached paint can show as
-            // blank until something (e.g. a mouse selection) forces WM_PAINT.
-            _content.Refresh();
+
+            _content.SelectionStart = _content.TextLength;
+            _content.SelectionLength = 0;
+            _content.SelectionColor = LevelColor(e.Level);
+            _content.AppendText(e.Body + "\n");
+            visible++;
         }
 
         if (scrollToEnd)
@@ -415,11 +408,6 @@ public sealed class LogViewerForm : Form
             _statusLabel.Text = "Clipboard unavailable, try again.";
         }
     }
-
-    private const int WM_SETREDRAW = 0x000B;
-
-    [DllImport("user32.dll")]
-    private static extern int SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
 
     private readonly record struct LogEntry(string Level, string Body);
 }
