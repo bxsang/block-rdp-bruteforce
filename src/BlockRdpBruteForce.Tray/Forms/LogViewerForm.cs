@@ -123,7 +123,7 @@ public sealed class LogViewerForm : Form
         foreach (var cb in new[] { _showInfo, _showWarn, _showError, _showDebug })
             cb.CheckedChanged += (_, _) => Render();
 
-        var findLabel = new Label { Text = "Find:", AutoSize = true, Margin = new Padding(8, 8, 4, 0) };
+        var findLabel = new Label { Text = "Find:", AutoSize = true, Margin = new Padding(8, 6, 4, 0) };
         _findBox = new TextBox
         {
             Anchor = AnchorStyles.Left | AnchorStyles.Right,
@@ -140,9 +140,9 @@ public sealed class LogViewerForm : Form
             Margin = new Padding(8, 0, 0, 0),
         };
 
-        _copyButton = new Button { Text = "Copy", AutoSize = true };
+        _copyButton = new Button { Text = "Copy", AutoSize = true, Margin = new Padding(0, 2, 0, 0) };
         _copyButton.Click += (_, _) => CopyVisible();
-        _closeButton = new Button { Text = "Close", AutoSize = true, Margin = new Padding(6, 0, 0, 0) };
+        _closeButton = new Button { Text = "Close", AutoSize = true, Margin = new Padding(6, 2, 0, 0) };
         _closeButton.Click += (_, _) => Close();
 
         bottom.Controls.Add(_showInfo, 0, 0);
