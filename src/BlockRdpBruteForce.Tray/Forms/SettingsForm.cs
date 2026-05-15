@@ -208,13 +208,10 @@ public sealed class SettingsForm : Form
         AttachAutostartHandlers(true);
         _autostartNote = new Label
         {
-            AutoSize = false,
-            Dock = DockStyle.Top,
-            TextAlign = ContentAlignment.MiddleLeft,
-            AutoEllipsis = true,
-            Height = 52,
+            AutoSize = true,
+            MaximumSize = new Size(420, 0),
             ForeColor = SystemColors.GrayText,
-            Padding = new Padding(0, 8, 0, 0),
+            Margin = new Padding(3, 8, 3, 3),
         };
 
         _isAdmin = IsRunningAsAdmin();
@@ -481,6 +478,23 @@ public sealed class SettingsForm : Form
     {
         var page = new TabPage("Interface") { Padding = new Padding(12), UseVisualStyleBackColor = true };
 
+        var autostartLayout = new TableLayoutPanel
+        {
+            Dock = DockStyle.Top,
+            ColumnCount = 1,
+            RowCount = 4,
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            Margin = Padding.Empty,
+        };
+        autostartLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        for (var i = 0; i < 4; i++)
+            autostartLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        autostartLayout.Controls.Add(_autostartOff, 0, 0);
+        autostartLayout.Controls.Add(_autostartHkcu, 0, 1);
+        autostartLayout.Controls.Add(_autostartHklm, 0, 2);
+        autostartLayout.Controls.Add(_autostartNote, 0, 3);
+
         var autostartGroup = new GroupBox
         {
             Text = "Tray autostart",
@@ -489,32 +503,9 @@ public sealed class SettingsForm : Form
             AutoSizeMode = AutoSizeMode.GrowAndShrink,
             Padding = new Padding(12, 8, 12, 8),
         };
-        var autostartStack = new FlowLayoutPanel
-        {
-            Dock = DockStyle.Top,
-            FlowDirection = FlowDirection.TopDown,
-            WrapContents = false,
-            AutoSize = true,
-            Padding = Padding.Empty,
-            Margin = Padding.Empty,
-        };
-        autostartStack.Controls.Add(_autostartOff);
-        autostartStack.Controls.Add(_autostartHkcu);
-        autostartStack.Controls.Add(_autostartHklm);
-        autostartStack.Controls.Add(_autostartNote);
-        autostartGroup.Controls.Add(autostartStack);
+        autostartGroup.Controls.Add(autostartLayout);
 
-        var stack = new FlowLayoutPanel
-        {
-            Dock = DockStyle.Top,
-            FlowDirection = FlowDirection.TopDown,
-            WrapContents = false,
-            AutoSize = true,
-            Padding = Padding.Empty,
-            Margin = Padding.Empty,
-        };
-        stack.Controls.Add(autostartGroup);
-        page.Controls.Add(stack);
+        page.Controls.Add(autostartGroup);
         return page;
     }
 
