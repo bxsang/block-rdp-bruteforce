@@ -153,7 +153,8 @@ When adding a new option, add it to `Configuration\AppOptions.cs`, the shipped
 `src\BlockRdpBruteForce\appsettings.json`, and the README config table.
 
 Nine settings are also writable at runtime through the pipe —
-`FailureThreshold`, `SlidingWindowMinutes`, `BlockDurationMinutes`,
+`FailureThreshold`, `SlidingWindowMinutes`, `BlockDurationMinutes` (JSON
+array; single entry = flat, multiple = repeat-offender ladder),
 `Whitelist`, `FirewallScope`, `EvaluateNlaFallback`, `GeoLookupEnabled`,
 `IpInfoToken`, `GeoRefreshIntervalDays`. The verbs are `config-get`,
 `config-set`, `whitelist-add`, `whitelist-remove`;

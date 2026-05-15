@@ -80,7 +80,7 @@ public static class CliDispatcher
         Console.WriteLine($"Started:         {s.StartedUtc.ToLocalTime():yyyy-MM-dd HH:mm:ss}");
         Console.WriteLine($"Now:             {s.NowUtc.ToLocalTime():yyyy-MM-dd HH:mm:ss}");
         Console.WriteLine($"Threshold:       {s.FailureThreshold} failures in {s.SlidingWindowMinutes} min");
-        Console.WriteLine($"Block duration:  {(s.BlockDurationMinutes <= 0 ? "permanent" : s.BlockDurationMinutes + " min")}");
+        Console.WriteLine($"Block duration:  {FormatBlockDurations(s.BlockDurationMinutes)}");
         Console.WriteLine($"Firewall rule:   {s.FirewallRuleName}");
         Console.WriteLine($"Whitelist:       {s.WhitelistEntryCount} entries");
         Console.WriteLine($"NLA fallback:    {(s.EvaluateNlaFallback ? "enabled" : "disabled")}");
@@ -187,6 +187,9 @@ public static class CliDispatcher
                 Console.Error.WriteLine("Usage: BlockRdpBruteForce config set <key> <value>");
                 Console.Error.WriteLine("  Keys: failure-threshold, sliding-window-minutes, block-duration-minutes,");
                 Console.Error.WriteLine("        firewall-scope, evaluate-nla-fallback, history-retention-days");
+                Console.Error.WriteLine("  block-duration-minutes accepts one value (e.g. 1440) or a ladder");
+                Console.Error.WriteLine("    of repeat-offender durations separated by commas (e.g. 60,240,1440,0).");
+                Console.Error.WriteLine("    0 = permanent (only allowed as the last entry).");
                 return 64;
             }
             var key = args[2].ToLowerInvariant();
@@ -205,8 +208,8 @@ public static class CliDispatcher
                     payload.SlidingWindowMinutes = sw;
                     break;
                 case "block-duration-minutes":
-                    if (!int.TryParse(value, out var bd))
-                        return Fail($"block-duration-minutes must be an integer (got '{value}')");
+                    if (!TryParseDurationList(value, out var bd, out var bdError))
+                        return Fail($"block-duration-minutes: {bdError}");
                     payload.BlockDurationMinutes = bd;
                     break;
                 case "firewall-scope":
@@ -269,7 +272,7 @@ public static class CliDispatcher
     {
         Console.WriteLine($"FailureThreshold:     {c.FailureThreshold}");
         Console.WriteLine($"SlidingWindowMinutes: {c.SlidingWindowMinutes}");
-        Console.WriteLine($"BlockDurationMinutes: {c.BlockDurationMinutes}{(c.BlockDurationMinutes <= 0 ? " (permanent)" : string.Empty)}");
+        Console.WriteLine($"BlockDurationMinutes: {FormatBlockDurations(c.BlockDurationMinutes)}");
         Console.WriteLine($"FirewallScope:        {c.FirewallScope}");
         Console.WriteLine($"EvaluateNlaFallback:  {c.EvaluateNlaFallback}");
         Console.WriteLine($"HistoryRetentionDays: {c.HistoryRetentionDays}{(c.HistoryRetentionDays <= 0 ? " (keep forever)" : string.Empty)}");
@@ -353,6 +356,46 @@ public static class CliDispatcher
         text.AppendLine("  whitelist remove <cidr>      Remove IP/CIDR from whitelist (hot, admin only)");
         Console.Error.WriteLine(text.ToString());
         return 64;
+    }
+
+    private static string FormatBlockDurations(IReadOnlyList<int>? minutes)
+    {
+        if (minutes is null || minutes.Count == 0) return "(unset)";
+        if (minutes.Count == 1)
+            return minutes[0] <= 0 ? "permanent" : minutes[0] + " min";
+        return string.Join(" → ", minutes.Select(m => m <= 0 ? "permanent" : m + " min"));
+    }
+
+    private static bool TryParseDurationList(string text, out List<int> result, out string error)
+    {
+        result = new List<int>();
+        error = string.Empty;
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            error = "value cannot be empty";
+            return false;
+        }
+
+        var parts = text.Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries);
+        for (var i = 0; i < parts.Length; i++)
+        {
+            var trimmed = parts[i].Trim();
+            if (!int.TryParse(trimmed, System.Globalization.NumberStyles.Integer,
+                              System.Globalization.CultureInfo.InvariantCulture, out var n))
+            {
+                error = $"entry #{i + 1} '{trimmed}' is not a whole number";
+                result.Clear();
+                return false;
+            }
+            result.Add(n);
+        }
+
+        if (result.Count == 0)
+        {
+            error = "value must contain at least one number";
+            return false;
+        }
+        return true;
     }
 
     private static string FormatDuration(TimeSpan span)

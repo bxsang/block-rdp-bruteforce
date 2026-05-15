@@ -60,7 +60,7 @@ public sealed class PipeProtocolTests
                 ServiceName = "BlockRdpBruteForce",
                 FailureThreshold = 5,
                 SlidingWindowMinutes = 10,
-                BlockDurationMinutes = 1440,
+                BlockDurationMinutes = new List<int> { 1440 },
                 FirewallRuleName = "BlockRDPBruteForce",
                 BlockedIpCount = 3,
                 WhitelistEntryCount = 2,
@@ -132,7 +132,7 @@ public sealed class PipeProtocolTests
         {
             FailureThreshold = 7,
             SlidingWindowMinutes = 15,
-            BlockDurationMinutes = 0,
+            BlockDurationMinutes = new List<int> { 60, 240, 1440, 0 },
             Whitelist = new List<string> { "127.0.0.1", "10.0.0.0/8" },
             FirewallScope = "RdpOnly",
             EvaluateNlaFallback = false,
@@ -144,7 +144,7 @@ public sealed class PipeProtocolTests
         Assert.NotNull(round);
         Assert.Equal(7, round!.FailureThreshold);
         Assert.Equal(15, round.SlidingWindowMinutes);
-        Assert.Equal(0, round.BlockDurationMinutes);
+        Assert.Equal(new List<int> { 60, 240, 1440, 0 }, round.BlockDurationMinutes);
         Assert.Equal("RdpOnly", round.FirewallScope);
         Assert.False(round.EvaluateNlaFallback);
         Assert.Equal(new[] { "127.0.0.1", "10.0.0.0/8" }, round.Whitelist);

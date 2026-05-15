@@ -5,66 +5,70 @@ namespace BlockRdpBruteForce.Tests;
 public sealed class BlockDurationLadderTests
 {
     [Fact]
-    public void Resolve_empty_ladder_uses_flat_fallback()
+    public void Resolve_null_uses_default_minutes()
     {
-        var actual = BlockDurationLadder.Resolve(new List<int>(), priorBlockCount: 0, fallbackMinutes: 60);
-        Assert.Equal(TimeSpan.FromMinutes(60), actual);
+        var actual = BlockDurationLadder.Resolve(null, priorBlockCount: 5);
+        Assert.Equal(TimeSpan.FromMinutes(BlockDurationLadder.DefaultMinutes), actual);
     }
 
     [Fact]
-    public void Resolve_null_ladder_uses_flat_fallback()
+    public void Resolve_empty_uses_default_minutes()
     {
-        var actual = BlockDurationLadder.Resolve(null, priorBlockCount: 5, fallbackMinutes: 30);
-        Assert.Equal(TimeSpan.FromMinutes(30), actual);
+        var actual = BlockDurationLadder.Resolve(new List<int>(), priorBlockCount: 0);
+        Assert.Equal(TimeSpan.FromMinutes(BlockDurationLadder.DefaultMinutes), actual);
     }
 
     [Fact]
-    public void Resolve_flat_fallback_zero_means_permanent()
+    public void Resolve_single_entry_zero_means_permanent()
     {
-        var actual = BlockDurationLadder.Resolve(null, priorBlockCount: 0, fallbackMinutes: 0);
+        var actual = BlockDurationLadder.Resolve(new List<int> { 0 }, priorBlockCount: 0);
         Assert.Null(actual);
+    }
+
+    [Fact]
+    public void Resolve_single_entry_acts_as_flat_duration()
+    {
+        var ladder = new List<int> { 60 };
+        Assert.Equal(TimeSpan.FromMinutes(60), BlockDurationLadder.Resolve(ladder, 0));
+        Assert.Equal(TimeSpan.FromMinutes(60), BlockDurationLadder.Resolve(ladder, 5));
     }
 
     [Fact]
     public void Resolve_first_block_uses_first_step()
     {
         var ladder = new List<int> { 60, 1440, 10080 };
-        var actual = BlockDurationLadder.Resolve(ladder, priorBlockCount: 0, fallbackMinutes: 9999);
-        Assert.Equal(TimeSpan.FromMinutes(60), actual);
+        Assert.Equal(TimeSpan.FromMinutes(60), BlockDurationLadder.Resolve(ladder, 0));
     }
 
     [Fact]
     public void Resolve_second_block_uses_second_step()
     {
         var ladder = new List<int> { 60, 1440, 10080 };
-        var actual = BlockDurationLadder.Resolve(ladder, priorBlockCount: 1, fallbackMinutes: 9999);
-        Assert.Equal(TimeSpan.FromMinutes(1440), actual);
+        Assert.Equal(TimeSpan.FromMinutes(1440), BlockDurationLadder.Resolve(ladder, 1));
     }
 
     [Fact]
     public void Resolve_past_end_uses_last_step()
     {
         var ladder = new List<int> { 60, 1440, 10080 };
-        var actual = BlockDurationLadder.Resolve(ladder, priorBlockCount: 99, fallbackMinutes: 9999);
-        Assert.Equal(TimeSpan.FromMinutes(10080), actual);
+        Assert.Equal(TimeSpan.FromMinutes(10080), BlockDurationLadder.Resolve(ladder, 99));
     }
 
     [Fact]
     public void Resolve_trailing_zero_means_permanent_at_cap()
     {
         var ladder = new List<int> { 60, 1440, 0 };
-        Assert.Equal(TimeSpan.FromMinutes(60), BlockDurationLadder.Resolve(ladder, 0, 9999));
-        Assert.Equal(TimeSpan.FromMinutes(1440), BlockDurationLadder.Resolve(ladder, 1, 9999));
-        Assert.Null(BlockDurationLadder.Resolve(ladder, 2, 9999));
-        Assert.Null(BlockDurationLadder.Resolve(ladder, 50, 9999));
+        Assert.Equal(TimeSpan.FromMinutes(60), BlockDurationLadder.Resolve(ladder, 0));
+        Assert.Equal(TimeSpan.FromMinutes(1440), BlockDurationLadder.Resolve(ladder, 1));
+        Assert.Null(BlockDurationLadder.Resolve(ladder, 2));
+        Assert.Null(BlockDurationLadder.Resolve(ladder, 50));
     }
 
     [Fact]
     public void Resolve_negative_prior_treated_as_zero()
     {
         var ladder = new List<int> { 60, 1440 };
-        var actual = BlockDurationLadder.Resolve(ladder, priorBlockCount: -5, fallbackMinutes: 9999);
-        Assert.Equal(TimeSpan.FromMinutes(60), actual);
+        Assert.Equal(TimeSpan.FromMinutes(60), BlockDurationLadder.Resolve(ladder, -5));
     }
 
     [Fact]
@@ -78,10 +82,17 @@ public sealed class BlockDurationLadderTests
     }
 
     [Fact]
-    public void Validate_accepts_empty()
+    public void Validate_rejects_null_or_empty()
     {
-        BlockDurationLadder.ValidateOrThrow(null);
-        BlockDurationLadder.ValidateOrThrow(new List<int>());
+        Assert.Throws<ArgumentException>(() => BlockDurationLadder.ValidateOrThrow(null));
+        Assert.Throws<ArgumentException>(() => BlockDurationLadder.ValidateOrThrow(new List<int>()));
+    }
+
+    [Fact]
+    public void Validate_accepts_single_entry()
+    {
+        BlockDurationLadder.ValidateOrThrow(new List<int> { 1440 });
+        BlockDurationLadder.ValidateOrThrow(new List<int> { 0 });
     }
 
     [Fact]

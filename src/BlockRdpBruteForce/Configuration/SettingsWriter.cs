@@ -68,12 +68,9 @@ public sealed class SettingsWriter
             if (payload.SlidingWindowMinutes.HasValue && payload.SlidingWindowMinutes != _current.SlidingWindowMinutes)
             { changedKeys.Add(nameof(ConfigPayload.SlidingWindowMinutes)); restartRequired = true; }
 
-            if (payload.BlockDurationMinutes.HasValue && payload.BlockDurationMinutes != _current.BlockDurationMinutes)
+            if (payload.BlockDurationMinutes is not null &&
+                !LadderEquals(payload.BlockDurationMinutes, _current.BlockDurationMinutes ?? new()))
             { changedKeys.Add(nameof(ConfigPayload.BlockDurationMinutes)); restartRequired = true; }
-
-            if (payload.BlockDurationLadderMinutes is not null &&
-                !LadderEquals(payload.BlockDurationLadderMinutes, _current.BlockDurationLadderMinutes ?? new()))
-            { changedKeys.Add(nameof(ConfigPayload.BlockDurationLadderMinutes)); restartRequired = true; }
 
             if (payload.FirewallScope is not null &&
                 !string.Equals(NormalizeScope(payload.FirewallScope), _current.FirewallScope, StringComparison.Ordinal))
@@ -141,14 +138,8 @@ public sealed class SettingsWriter
             throw new ConfigValidationException("FailureThreshold must be >= 1");
         if (merged.SlidingWindowMinutes is not int sw || sw < 1 || sw > 1440)
             throw new ConfigValidationException("SlidingWindowMinutes must be in [1, 1440]");
-        if (merged.BlockDurationMinutes is not int bd || bd < 0)
-            throw new ConfigValidationException("BlockDurationMinutes must be >= 0 (0 = permanent)");
-        var ladder = merged.BlockDurationLadderMinutes;
-        if (ladder is not null)
-        {
-            try { BlockDurationLadder.ValidateOrThrow(ladder); }
-            catch (ArgumentException ex) { throw new ConfigValidationException(ex.Message); }
-        }
+        try { BlockDurationLadder.ValidateOrThrow(merged.BlockDurationMinutes); }
+        catch (ArgumentException ex) { throw new ConfigValidationException(ex.Message); }
         if (merged.EvaluateNlaFallback is null)
             throw new ConfigValidationException("EvaluateNlaFallback must be a boolean");
         if (merged.HistoryRetentionDays is not int hr || hr < 0)
@@ -186,11 +177,9 @@ public sealed class SettingsWriter
     {
         FailureThreshold       = payload.FailureThreshold     ?? current.FailureThreshold,
         SlidingWindowMinutes   = payload.SlidingWindowMinutes ?? current.SlidingWindowMinutes,
-        BlockDurationMinutes   = payload.BlockDurationMinutes ?? current.BlockDurationMinutes,
-        BlockDurationLadderMinutes
-                               = payload.BlockDurationLadderMinutes is null
-                                  ? current.BlockDurationLadderMinutes?.ToList() ?? new()
-                                  : payload.BlockDurationLadderMinutes.ToList(),
+        BlockDurationMinutes   = payload.BlockDurationMinutes is null
+                                  ? current.BlockDurationMinutes?.ToList() ?? new()
+                                  : payload.BlockDurationMinutes.ToList(),
         Whitelist              = payload.Whitelist is null
                                   ? current.Whitelist?.ToList() ?? new()
                                   : NormalizeWhitelist(payload.Whitelist),
@@ -258,7 +247,6 @@ public sealed class SettingsWriter
         {
             [nameof(AppOptions.FailureThreshold)]       = candidate.FailureThreshold!.Value,
             [nameof(AppOptions.SlidingWindowMinutes)]   = candidate.SlidingWindowMinutes!.Value,
-            [nameof(AppOptions.BlockDurationMinutes)]   = candidate.BlockDurationMinutes!.Value,
             [nameof(AppOptions.FirewallScope)]          = candidate.FirewallScope,
             [nameof(AppOptions.EvaluateNlaFallback)]    = candidate.EvaluateNlaFallback!.Value,
             [nameof(AppOptions.HistoryRetentionDays)]   = candidate.HistoryRetentionDays!.Value,
@@ -273,9 +261,9 @@ public sealed class SettingsWriter
         foreach (var w in candidate.Whitelist ?? new()) arr.Add(w);
         section[nameof(AppOptions.Whitelist)] = arr;
 
-        var ladderArr = new JsonArray();
-        foreach (var v in candidate.BlockDurationLadderMinutes ?? new()) ladderArr.Add(v);
-        section[nameof(AppOptions.BlockDurationLadderMinutes)] = ladderArr;
+        var blockDurationArr = new JsonArray();
+        foreach (var v in candidate.BlockDurationMinutes ?? new()) blockDurationArr.Add(v);
+        section[nameof(AppOptions.BlockDurationMinutes)] = blockDurationArr;
 
         // Preserve any unmanaged keys an admin may have written into BlockRdp
         // (e.g. StateFilePath override). They are not part of the managed set,
@@ -317,8 +305,7 @@ public sealed class SettingsWriter
     {
         FailureThreshold = src.FailureThreshold,
         SlidingWindowMinutes = src.SlidingWindowMinutes,
-        BlockDurationMinutes = src.BlockDurationMinutes,
-        BlockDurationLadderMinutes = src.BlockDurationLadderMinutes?.ToList(),
+        BlockDurationMinutes = src.BlockDurationMinutes?.ToList(),
         Whitelist = src.Whitelist?.ToList(),
         FirewallScope = src.FirewallScope,
         EvaluateNlaFallback = src.EvaluateNlaFallback,
@@ -338,8 +325,7 @@ public sealed class SettingsWriter
         {
             FailureThreshold = src.FailureThreshold,
             SlidingWindowMinutes = src.SlidingWindowMinutes,
-            BlockDurationMinutes = src.BlockDurationMinutes,
-            BlockDurationLadderMinutes = src.BlockDurationLadderMinutes?.ToList() ?? new List<int>(),
+            BlockDurationMinutes = src.BlockDurationMinutes?.ToList() ?? new List<int>(),
             Whitelist = src.Whitelist?.ToList() ?? new List<string>(),
             FirewallScope = src.FirewallScope,
             EvaluateNlaFallback = src.EvaluateNlaFallback,

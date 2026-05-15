@@ -63,8 +63,7 @@ public sealed class ConfigPayload
 {
     public int? FailureThreshold { get; set; }
     public int? SlidingWindowMinutes { get; set; }
-    public int? BlockDurationMinutes { get; set; }
-    public List<int>? BlockDurationLadderMinutes { get; set; }
+    public List<int>? BlockDurationMinutes { get; set; }
     public List<string>? Whitelist { get; set; }
     public string? FirewallScope { get; set; }
     public bool? EvaluateNlaFallback { get; set; }
@@ -89,7 +88,7 @@ public sealed class StatusPayload
     public string ServiceName { get; set; } = "BlockRdpBruteForce";
     public int FailureThreshold { get; set; }
     public int SlidingWindowMinutes { get; set; }
-    public int BlockDurationMinutes { get; set; }
+    public List<int> BlockDurationMinutes { get; set; } = new();
     public string FirewallRuleName { get; set; } = string.Empty;
     public int BlockedIpCount { get; set; }
     public int WhitelistEntryCount { get; set; }

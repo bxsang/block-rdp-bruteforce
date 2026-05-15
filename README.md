@@ -106,8 +106,7 @@ the override wins.
   "BlockRdp": {
     "FailureThreshold": 5,
     "SlidingWindowMinutes": 10,
-    "BlockDurationMinutes": 1440,
-    "BlockDurationLadderMinutes": [],
+    "BlockDurationMinutes": [ 1440 ],
     "Whitelist": [ "127.0.0.1", "::1", "10.0.0.0/8" ],
     "FirewallRuleName": "BlockRDPBruteForce",
     "FirewallScope": "AllPorts",
@@ -133,8 +132,7 @@ the override wins.
 |---|---|
 | `FailureThreshold` | Failures within the window before an IP is blocked |
 | `SlidingWindowMinutes` | Window size used for the per-IP failure count |
-| `BlockDurationMinutes` | Ban duration; `0` = permanent. Used when `BlockDurationLadderMinutes` is empty |
-| `BlockDurationLadderMinutes` | Escalating-duration ladder for repeat offenders, e.g. `[1440, 10080, 43200, 0]` = 1d → 7d → 30d → permanent. Empty array = use flat `BlockDurationMinutes`. Trailing `0` caps the ladder at permanent |
+| `BlockDurationMinutes` | Ban duration in minutes as a JSON array. Single entry = flat duration (e.g. `[1440]`). Multiple entries = escalating ladder for repeat offenders (e.g. `[60, 240, 1440, 10080, 0]` = 1h → 4h → 1d → 7d → permanent). Trailing `0` caps the ladder at permanent |
 | `Whitelist` | IPv4/IPv6 single addresses **and** CIDR ranges |
 | `FirewallScope` | `AllPorts` (block IP entirely) or `RdpOnly` (port 3389) |
 | `MaxRemoteAddressesPerRule` | Past this size the rule is sharded into `-2`, `-3`, … siblings |

@@ -24,7 +24,7 @@ public sealed class SettingsWriterTests : IDisposable
         {
             FailureThreshold = 5,
             SlidingWindowMinutes = 10,
-            BlockDurationMinutes = 1440,
+            BlockDurationMinutes = new List<int> { 1440 },
             Whitelist = new List<string> { "127.0.0.1", "10.0.0.0/8" },
             FirewallScope = "AllPorts",
             EvaluateNlaFallback = true,
@@ -279,48 +279,46 @@ public sealed class SettingsWriterTests : IDisposable
     }
 
     [Fact]
-    public void Apply_ladder_change_writes_file_and_requires_restart()
+    public void Apply_block_duration_ladder_writes_file_and_requires_restart()
     {
         var result = _writer.Apply(
-            new ConfigPayload { BlockDurationLadderMinutes = new List<int> { 1440, 10080, 0 } },
+            new ConfigPayload { BlockDurationMinutes = new List<int> { 1440, 10080, 0 } },
             "test");
 
         Assert.True(result.RestartRequired);
         Assert.Empty(result.AppliedHot);
-        Assert.Equal(new List<int> { 1440, 10080, 0 }, result.Effective.BlockDurationLadderMinutes);
+        Assert.Equal(new List<int> { 1440, 10080, 0 }, result.Effective.BlockDurationMinutes);
 
         var json = JsonNode.Parse(File.ReadAllText(_path))!;
-        var arr = json["BlockRdp"]!["BlockDurationLadderMinutes"]!.AsArray();
+        var arr = json["BlockRdp"]!["BlockDurationMinutes"]!.AsArray();
         Assert.Equal(3, arr.Count);
         Assert.Equal(1440, arr[0]!.GetValue<int>());
         Assert.Equal(0, arr[2]!.GetValue<int>());
     }
 
     [Fact]
-    public void Apply_ladder_clear_is_persisted_as_empty_array()
+    public void Apply_block_duration_single_value_persists_as_one_element_array()
     {
         _writer.Apply(
-            new ConfigPayload { BlockDurationLadderMinutes = new List<int> { 1440, 10080 } },
-            "test");
-        _writer.Apply(
-            new ConfigPayload { BlockDurationLadderMinutes = new List<int>() },
+            new ConfigPayload { BlockDurationMinutes = new List<int> { 720 } },
             "test");
 
         var json = JsonNode.Parse(File.ReadAllText(_path))!;
-        var arr = json["BlockRdp"]!["BlockDurationLadderMinutes"]!.AsArray();
-        Assert.Empty(arr);
+        var arr = json["BlockRdp"]!["BlockDurationMinutes"]!.AsArray();
+        Assert.Single(arr);
+        Assert.Equal(720, arr[0]!.GetValue<int>());
     }
 
     [Fact]
-    public void Apply_same_ladder_is_noop()
+    public void Apply_same_block_duration_is_noop()
     {
         _writer.Apply(
-            new ConfigPayload { BlockDurationLadderMinutes = new List<int> { 1440, 10080 } },
+            new ConfigPayload { BlockDurationMinutes = new List<int> { 1440, 10080 } },
             "test");
         File.Delete(_path);
 
         var result = _writer.Apply(
-            new ConfigPayload { BlockDurationLadderMinutes = new List<int> { 1440, 10080 } },
+            new ConfigPayload { BlockDurationMinutes = new List<int> { 1440, 10080 } },
             "test");
 
         Assert.False(result.RestartRequired);
@@ -328,19 +326,27 @@ public sealed class SettingsWriterTests : IDisposable
     }
 
     [Fact]
-    public void Validate_rejects_ladder_with_negative_entry()
+    public void Validate_rejects_empty_block_duration()
+    {
+        Assert.Throws<ConfigValidationException>(() => _writer.Apply(
+            new ConfigPayload { BlockDurationMinutes = new List<int>() },
+            "test"));
+    }
+
+    [Fact]
+    public void Validate_rejects_block_duration_with_negative_entry()
     {
         var ex = Assert.Throws<ConfigValidationException>(() => _writer.Apply(
-            new ConfigPayload { BlockDurationLadderMinutes = new List<int> { 60, -1 } },
+            new ConfigPayload { BlockDurationMinutes = new List<int> { 60, -1 } },
             "test"));
         Assert.Contains(">= 0", ex.Message);
     }
 
     [Fact]
-    public void Validate_rejects_ladder_with_zero_not_at_end()
+    public void Validate_rejects_block_duration_with_zero_not_at_end()
     {
         Assert.Throws<ConfigValidationException>(() => _writer.Apply(
-            new ConfigPayload { BlockDurationLadderMinutes = new List<int> { 60, 0, 1440 } },
+            new ConfigPayload { BlockDurationMinutes = new List<int> { 60, 0, 1440 } },
             "test"));
     }
 }

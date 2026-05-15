@@ -31,7 +31,7 @@ public sealed class WorkerPipeOpsTests : IDisposable
         {
             FailureThreshold = 3,
             SlidingWindowMinutes = 10,
-            BlockDurationMinutes = 60,
+            BlockDurationMinutes = new List<int> { 60 },
             FirewallRuleName = "TestRule",
             Whitelist = new() { "10.0.0.0/8" },
             StateFilePath = _statePath,
@@ -49,7 +49,7 @@ public sealed class WorkerPipeOpsTests : IDisposable
         {
             FailureThreshold = options.Value.FailureThreshold,
             SlidingWindowMinutes = options.Value.SlidingWindowMinutes,
-            BlockDurationMinutes = options.Value.BlockDurationMinutes,
+            BlockDurationMinutes = options.Value.BlockDurationMinutes.ToList(),
             Whitelist = options.Value.Whitelist.ToList(),
             FirewallScope = options.Value.FirewallScope,
             EvaluateNlaFallback = options.Value.EvaluateNlaFallback,
@@ -98,7 +98,7 @@ public sealed class WorkerPipeOpsTests : IDisposable
         Assert.Equal("BlockRdpBruteForce", status.ServiceName);
         Assert.Equal(3, status.FailureThreshold);
         Assert.Equal(10, status.SlidingWindowMinutes);
-        Assert.Equal(60, status.BlockDurationMinutes);
+        Assert.Equal(new List<int> { 60 }, status.BlockDurationMinutes);
         Assert.Equal("TestRule", status.FirewallRuleName);
         Assert.Equal(1, status.WhitelistEntryCount);
         Assert.Equal(0, status.BlockedIpCount);
@@ -224,7 +224,7 @@ public sealed class WorkerPipeOpsTests : IDisposable
         var config = _worker.GetConfig();
         Assert.Equal(3, config.FailureThreshold);
         Assert.Equal(10, config.SlidingWindowMinutes);
-        Assert.Equal(60, config.BlockDurationMinutes);
+        Assert.Equal(new List<int> { 60 }, config.BlockDurationMinutes);
         Assert.Equal(new List<string> { "10.0.0.0/8" }, config.Whitelist);
     }
 

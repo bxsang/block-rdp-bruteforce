@@ -92,10 +92,10 @@ public sealed class Worker : BackgroundService, IPipeOps
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         _log.LogInformation(
-            "BlockRdpBruteForce starting (threshold={Threshold} in {Window}m, blockDuration={BlockMin}m, whitelist={WhitelistCount})",
+            "BlockRdpBruteForce starting (threshold={Threshold} in {Window}m, blockDuration={BlockMin}, whitelist={WhitelistCount})",
             _options.FailureThreshold,
             _options.SlidingWindowMinutes,
-            _options.BlockDurationMinutes,
+            FormatDurationList(_options.BlockDurationMinutes),
             CurrentWhitelist.EntryCount);
 
         _state.Load();
@@ -237,9 +237,8 @@ public sealed class Worker : BackgroundService, IPipeOps
             }
 
             var priorBlockCount = existing?.Count ?? 0;
-            var ladder = _options.BlockDurationLadderMinutes;
-            var duration = BlockDurationLadder.Resolve(
-                ladder, priorBlockCount, _options.BlockDurationMinutes);
+            var ladder = _options.BlockDurationMinutes;
+            var duration = BlockDurationLadder.Resolve(ladder, priorBlockCount);
             var step = BlockDurationLadder.StepFor(ladder, priorBlockCount);
 
             var record = _state.Upsert(ip, utcNow, duration);
@@ -247,7 +246,7 @@ public sealed class Worker : BackgroundService, IPipeOps
             _state.Save();
             _tracker.Reset(ip);
 
-            if (ladder is { Count: > 0 })
+            if (ladder is { Count: > 1 })
             {
                 _log.LogWarning(
                     "Blocked {Ip} (timesBlocked={Count}, ladderStep={Step}/{StepCount}, until={Until})",
@@ -270,12 +269,19 @@ public sealed class Worker : BackgroundService, IPipeOps
 
     private WhitelistEvaluator CurrentWhitelist => Volatile.Read(ref _whitelist);
 
+    private static string FormatDurationList(IReadOnlyList<int> minutes)
+    {
+        if (minutes is null || minutes.Count == 0) return "(unset)";
+        if (minutes.Count == 1) return minutes[0] <= 0 ? "permanent" : minutes[0] + "m";
+        return "[" + string.Join(", ", minutes.Select(m => m <= 0 ? "permanent" : m + "m")) + "]";
+    }
+
     public StatusPayload GetStatus() => new()
     {
         ServiceName = "BlockRdpBruteForce",
         FailureThreshold = _options.FailureThreshold,
         SlidingWindowMinutes = _options.SlidingWindowMinutes,
-        BlockDurationMinutes = _options.BlockDurationMinutes,
+        BlockDurationMinutes = _options.BlockDurationMinutes.ToList(),
         FirewallRuleName = _options.FirewallRuleName,
         BlockedIpCount = _state.ActiveBlockedIps(DateTime.UtcNow).Count,
         WhitelistEntryCount = CurrentWhitelist.EntryCount,
