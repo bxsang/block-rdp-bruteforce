@@ -747,6 +747,8 @@ public sealed class SettingsForm : Form
         {
             _serviceActionInFlight = false;
             await RefreshServiceStatusAsync();
+            if (TryGetServiceStatus(out _) == ServiceControllerStatus.Running)
+                await ReloadAsync();
         }
     }
 
@@ -1155,6 +1157,15 @@ public sealed class SettingsForm : Form
         catch { }
     }
 
+    private void SetConfigEditingEnabled(bool enabled)
+    {
+        _generalTab.Enabled = enabled;
+        _whitelistTab.Enabled = enabled;
+        _geoTab.Enabled = enabled;
+        _updatesTab.Enabled = enabled;
+        _applyButton.Enabled = enabled;
+    }
+
     private async Task ReloadAsync()
     {
         try
@@ -1162,6 +1173,7 @@ public sealed class SettingsForm : Form
             _statusLabel.Text = "Loading…";
             var c = await _client.ConfigGetAsync();
             _loaded = c;
+            SetConfigEditingEnabled(true);
 
             _failureThreshold.Value = Clamp(c.FailureThreshold ?? 5, _failureThreshold);
             _slidingWindow.Value = Clamp(c.SlidingWindowMinutes ?? 10, _slidingWindow);
@@ -1192,13 +1204,20 @@ public sealed class SettingsForm : Form
         }
         catch (InvalidOperationException ex)
         {
+            SetConfigEditingEnabled(false);
             ShowAdminError("Could not load settings", ex);
         }
         catch (Exception ex)
         {
-            _statusLabel.Text = $"Error: {ex.Message}";
+            SetConfigEditingEnabled(false);
+            _statusLabel.Text = LooksLikePipeUnreachable(ex)
+                ? "Service is not running — use the Service tab to start it, then Reload."
+                : $"Error: {ex.Message}";
         }
     }
+
+    private static bool LooksLikePipeUnreachable(Exception ex) =>
+        ex is System.TimeoutException or System.IO.FileNotFoundException or System.IO.IOException;
 
     private async Task UpdateGeoStatusAsync()
     {
