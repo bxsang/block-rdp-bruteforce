@@ -380,7 +380,10 @@ public sealed class LogViewerForm : Form
         finally
         {
             SendMessage(_content.Handle, WM_SETREDRAW, (IntPtr)1, IntPtr.Zero);
-            _content.Invalidate();
+            // Refresh = Invalidate + Update. Just Invalidate is not enough here:
+            // after WM_SETREDRAW toggles, the control's cached paint can show as
+            // blank until something (e.g. a mouse selection) forces WM_PAINT.
+            _content.Refresh();
         }
 
         if (scrollToEnd)
