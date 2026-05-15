@@ -46,8 +46,11 @@ public sealed class SettingsForm : Form
     private readonly Label _updateStatus;
     private string? _availableUpdateVersion;
 
-    private readonly CheckBox _autostartEnabled;
+    private readonly RadioButton _autostartOff;
+    private readonly RadioButton _autostartHkcu;
+    private readonly RadioButton _autostartHklm;
     private readonly Label _autostartNote;
+    private bool _autostartReloading;
 
     private readonly Label _serviceStatusLabel;
     private readonly Button _serviceStartButton;
@@ -184,20 +187,32 @@ public sealed class SettingsForm : Form
             Height = 36,
         };
 
-        _autostartEnabled = new CheckBox
+        _autostartOff = new RadioButton
         {
-            Text = "Start BlockRdpBruteForce tray when I sign in",
+            Text = "Off — don't start at sign-in",
             AutoSize = true,
             Anchor = AnchorStyles.Left,
         };
-        _autostartEnabled.CheckedChanged += OnAutostartToggled;
+        _autostartHkcu = new RadioButton
+        {
+            Text = "Start when I sign in (this user only)",
+            AutoSize = true,
+            Anchor = AnchorStyles.Left,
+        };
+        _autostartHklm = new RadioButton
+        {
+            Text = "Start when anyone signs in (all users — requires admin)",
+            AutoSize = true,
+            Anchor = AnchorStyles.Left,
+        };
+        AttachAutostartHandlers(true);
         _autostartNote = new Label
         {
             AutoSize = false,
             Dock = DockStyle.Top,
             TextAlign = ContentAlignment.MiddleLeft,
             AutoEllipsis = true,
-            Height = 36,
+            Height = 52,
             ForeColor = SystemColors.GrayText,
             Padding = new Padding(0, 8, 0, 0),
         };
@@ -465,6 +480,30 @@ public sealed class SettingsForm : Form
     private TabPage BuildInterfaceTab()
     {
         var page = new TabPage("Interface") { Padding = new Padding(12), UseVisualStyleBackColor = true };
+
+        var autostartGroup = new GroupBox
+        {
+            Text = "Tray autostart",
+            Dock = DockStyle.Top,
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            Padding = new Padding(12, 8, 12, 8),
+        };
+        var autostartStack = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Top,
+            FlowDirection = FlowDirection.TopDown,
+            WrapContents = false,
+            AutoSize = true,
+            Padding = Padding.Empty,
+            Margin = Padding.Empty,
+        };
+        autostartStack.Controls.Add(_autostartOff);
+        autostartStack.Controls.Add(_autostartHkcu);
+        autostartStack.Controls.Add(_autostartHklm);
+        autostartStack.Controls.Add(_autostartNote);
+        autostartGroup.Controls.Add(autostartStack);
+
         var stack = new FlowLayoutPanel
         {
             Dock = DockStyle.Top,
@@ -474,8 +513,7 @@ public sealed class SettingsForm : Form
             Padding = Padding.Empty,
             Margin = Padding.Empty,
         };
-        stack.Controls.Add(_autostartEnabled);
-        stack.Controls.Add(_autostartNote);
+        stack.Controls.Add(autostartGroup);
         page.Controls.Add(stack);
         return page;
     }
@@ -712,21 +750,66 @@ public sealed class SettingsForm : Form
         }
     }
 
+    private enum AutostartMode { Off, CurrentUser, AllUsers }
+
+    private static AutostartMode CurrentAutostartMode()
+    {
+        if (IsHklmAutostartSet()) return AutostartMode.AllUsers;
+        if (IsHkcuAutostartSet()) return AutostartMode.CurrentUser;
+        return AutostartMode.Off;
+    }
+
+    private void AttachAutostartHandlers(bool attach)
+    {
+        if (attach)
+        {
+            _autostartOff.CheckedChanged += OnAutostartChanged;
+            _autostartHkcu.CheckedChanged += OnAutostartChanged;
+            _autostartHklm.CheckedChanged += OnAutostartChanged;
+        }
+        else
+        {
+            _autostartOff.CheckedChanged -= OnAutostartChanged;
+            _autostartHkcu.CheckedChanged -= OnAutostartChanged;
+            _autostartHklm.CheckedChanged -= OnAutostartChanged;
+        }
+    }
+
+    private void SetAutostartEnabled(bool enabled)
+    {
+        _autostartOff.Enabled = enabled;
+        _autostartHkcu.Enabled = enabled;
+        _autostartHklm.Enabled = enabled;
+    }
+
     private void LoadAutostartState()
     {
-        var hkcuSet = IsHkcuAutostartSet();
-        var hklmSet = IsHklmAutostartSet();
+        _autostartReloading = true;
+        try
+        {
+            var mode = CurrentAutostartMode();
+            _autostartOff.Checked = mode == AutostartMode.Off;
+            _autostartHkcu.Checked = mode == AutostartMode.CurrentUser;
+            _autostartHklm.Checked = mode == AutostartMode.AllUsers;
+            SetAutostartEnabled(true);
 
-        _autostartEnabled.CheckedChanged -= OnAutostartToggled;
-        _autostartEnabled.Checked = hkcuSet || hklmSet;
-        _autostartEnabled.Enabled = true;
-        _autostartEnabled.CheckedChanged += OnAutostartToggled;
-
-        _autostartNote.Text = hklmSet
-            ? "Currently enabled for all users (HKLM, set by the installer). Unticking will " +
-              "prompt for Administrator approval to clear the machine-wide entry."
-            : "Tick: write a per-user HKCU\\…\\Run entry (no admin needed). " +
-              "Untick: also clear any HKLM entry, which prompts for Administrator approval.";
+            _autostartNote.Text = mode switch
+            {
+                AutostartMode.AllUsers =>
+                    "Tray launches for every user at sign-in (HKLM Run). " +
+                    "Changing this clears the machine-wide entry and prompts for Administrator approval.",
+                AutostartMode.CurrentUser =>
+                    "Tray launches for this user only (HKCU Run, no admin needed). " +
+                    "Switching to \"all users\" prompts for Administrator approval.",
+                _ =>
+                    "Tray will not auto-launch. " +
+                    "\"This user\" is silent; \"all users\" prompts for Administrator approval.",
+            };
+        }
+        finally
+        {
+            _autostartReloading = false;
+        }
     }
 
     private static bool IsHkcuAutostartSet()
@@ -749,17 +832,37 @@ public sealed class SettingsForm : Form
         catch { return false; }
     }
 
-    private async void OnAutostartToggled(object? sender, EventArgs e)
+    private async void OnAutostartChanged(object? sender, EventArgs e)
     {
-        var wantEnabled = _autostartEnabled.Checked;
-        _autostartEnabled.Enabled = false;
+        if (_autostartReloading) return;
+        if (sender is not RadioButton rb || !rb.Checked) return;
+
+        var target =
+            rb == _autostartHklm ? AutostartMode.AllUsers :
+            rb == _autostartHkcu ? AutostartMode.CurrentUser :
+            AutostartMode.Off;
+        var current = CurrentAutostartMode();
+        if (target == current) return;
+
+        SetAutostartEnabled(false);
         try
         {
-            if (wantEnabled)
+            // UAC-prompting HKLM change first so cancellation leaves state untouched.
+            var hklmShouldBeSet = target == AutostartMode.AllUsers;
+            if (IsHklmAutostartSet() != hklmShouldBeSet)
+            {
+                var ok = await SetHklmAutostartElevatedAsync(enable: hklmShouldBeSet);
+                if (!ok)
+                {
+                    _statusLabel.Text = "Autostart change cancelled.";
+                    return;
+                }
+            }
+
+            if (target == AutostartMode.CurrentUser)
             {
                 using var key = Registry.CurrentUser.CreateSubKey(AutostartRegPath, writable: true);
                 key?.SetValue(AutostartValueName, $"\"{Application.ExecutablePath}\"", RegistryValueKind.String);
-                _statusLabel.Text = "Autostart enabled.";
             }
             else
             {
@@ -769,18 +872,14 @@ public sealed class SettingsForm : Form
                     key?.DeleteValue(AutostartValueName, throwOnMissingValue: false);
                 }
                 catch { /* best-effort HKCU clear */ }
-
-                if (IsHklmAutostartSet())
-                {
-                    var ok = await SetHklmAutostartElevatedAsync(enable: false);
-                    if (!ok)
-                    {
-                        _statusLabel.Text = "Autostart change cancelled.";
-                        return;
-                    }
-                }
-                _statusLabel.Text = "Autostart disabled.";
             }
+
+            _statusLabel.Text = target switch
+            {
+                AutostartMode.AllUsers => "Autostart enabled for all users.",
+                AutostartMode.CurrentUser => "Autostart enabled for this user.",
+                _ => "Autostart disabled.",
+            };
         }
         catch (Exception ex)
         {
