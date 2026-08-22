@@ -84,6 +84,11 @@ jobs:
       contents: write
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - name: Extract version
         id: version
         shell: pwsh
@@ -91,6 +96,12 @@ jobs:
           $env:GITHUB_REF -match '^refs/tags/v(.+)$' | Out-Null
           $ver = $Matches[1]
           "version=$ver" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Extract release notes from tag
+        shell: pwsh
+        run: |
+          git tag -l --format='%(contents)' "$env:GITHUB_REF" |
+            Out-File -FilePath release-notes.md -Encoding utf8
 
       - name: Download self-contained MSI
         uses: actions/download-artifact@v4
@@ -113,8 +124,8 @@ jobs:
             BlockRdpBruteForce-${{ steps.version.outputs.version }}-framework-dependent.msi
 
       - name: Create GitHub release
-        uses: softprops/action-gh-release@v2
         with:
+          body_path: release-notes.md
           files: |
             release-assets/self-contained/BlockRdpBruteForce-${{ steps.version.outputs.version }}-self-contained.msi
             release-assets/framework-dependent/BlockRdpBruteForce-${{ steps.version.outputs.version }}-framework-dependent.msi
