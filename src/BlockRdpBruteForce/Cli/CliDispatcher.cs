@@ -305,7 +305,10 @@ public static class CliDispatcher
         client.Write(PipeProtocol.Encode(request));
         client.Flush();
 
-        var responseBytes = ReadLine(client);
+        var responseBytes = PipeProtocol
+            .ReadLineAsync(client, CancellationToken.None)
+            .GetAwaiter()
+            .GetResult();
         if (responseBytes is null)
             return PipeResponse.Failure("no response");
 
@@ -313,27 +316,6 @@ public static class CliDispatcher
             ?? PipeResponse.Failure("could not parse response");
     }
 
-    private static byte[]? ReadLine(NamedPipeClientStream client)
-    {
-        var buf = new byte[1024];
-        using var ms = new MemoryStream(1024);
-        while (true)
-        {
-            var read = client.Read(buf, 0, buf.Length);
-            if (read <= 0) return ms.Length == 0 ? null : ms.ToArray();
-            for (var i = 0; i < read; i++)
-            {
-                if (buf[i] == (byte)'\n')
-                {
-                    ms.Write(buf, 0, i);
-                    return ms.ToArray();
-                }
-            }
-            ms.Write(buf, 0, read);
-            if (ms.Length > PipeProtocol.MaxRequestBytes * 4)
-                return ms.ToArray();
-        }
-    }
 
     private static int ReportError(PipeResponse response, string fallback)
     {

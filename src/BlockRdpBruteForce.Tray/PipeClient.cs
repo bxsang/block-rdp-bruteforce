@@ -92,7 +92,7 @@ public sealed class PipeClient
         await client.WriteAsync(PipeProtocol.Encode(request), ct).ConfigureAwait(false);
         await client.FlushAsync(ct).ConfigureAwait(false);
 
-        var responseBytes = await ReadLineAsync(client, ct).ConfigureAwait(false)
+        var responseBytes = await PipeProtocol.ReadLineAsync(client, ct).ConfigureAwait(false)
             ?? throw new IOException("no response from service");
 
         var response = PipeProtocol.Decode<PipeResponse>(responseBytes)
@@ -112,26 +112,6 @@ public sealed class PipeClient
         return select(response);
     }
 
-    private static async Task<byte[]?> ReadLineAsync(NamedPipeClientStream client, CancellationToken ct)
-    {
-        var buf = new byte[1024];
-        using var ms = new MemoryStream(1024);
-        while (true)
-        {
-            var read = await client.ReadAsync(buf.AsMemory(), ct).ConfigureAwait(false);
-            if (read <= 0) return ms.Length == 0 ? null : ms.ToArray();
-            for (var i = 0; i < read; i++)
-            {
-                if (buf[i] == (byte)'\n')
-                {
-                    ms.Write(buf, 0, i);
-                    return ms.ToArray();
-                }
-            }
-            ms.Write(buf, 0, read);
-            if (ms.Length > 256 * 1024) return ms.ToArray();
-        }
-    }
 }
 
 [SupportedOSPlatform("windows")]

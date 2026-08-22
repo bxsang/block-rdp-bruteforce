@@ -200,4 +200,62 @@ public sealed class PipeProtocolTests
         Assert.Equal(9, round.Config!.FailureThreshold);
         Assert.Equal("192.168.1.0/24", round.Cidr);
     }
+
+    [Fact]
+    public async Task ReadLineAsync_returns_full_frame_across_chunk_boundaries()
+    {
+        var payload = new string('x', 3000); // spans several 512-byte reads
+        var stream = new ChunkedStream(
+            Encoding.UTF8.GetBytes(payload + "\ntrailing-after-frame"));
+
+        var frame = await PipeProtocol.ReadLineAsync(stream, CancellationToken.None);
+
+        Assert.Equal(payload, Encoding.UTF8.GetString(frame!));
+    }
+
+    [Fact]
+    public async Task ReadLineAsync_returns_null_on_clean_eof()
+    {
+        var frame = await PipeProtocol.ReadLineAsync(
+            new ChunkedStream(Array.Empty<byte>()), CancellationToken.None);
+
+        Assert.Null(frame);
+    }
+
+    [Fact]
+    public async Task ReadLineAsync_throws_when_frame_exceeds_limit()
+    {
+        var oversized = new byte[PipeProtocol.MaxResponseBytes + 1];
+        Array.Fill(oversized, (byte)'a');
+
+        await Assert.ThrowsAsync<IOException>(
+            () => PipeProtocol.ReadLineAsync(new ChunkedStream(oversized), CancellationToken.None));
+    }
+
+    /// <summary>Delivers at most 512 bytes per Read so frames span multiple reads.</summary>
+    private sealed class ChunkedStream(byte[] data) : Stream
+    {
+        private int _pos;
+
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => data.Length - _pos;
+
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            if (_pos >= data.Length) return 0;
+            var n = Math.Min(Math.Min(count, 512), data.Length - _pos);
+            Array.Copy(data, _pos, buffer, offset, n);
+            _pos += n;
+            return n;
+        }
+
+        public override long Position { get => _pos; set => throw new NotSupportedException(); }
+
+        public override void Flush() { }
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+    }
 }

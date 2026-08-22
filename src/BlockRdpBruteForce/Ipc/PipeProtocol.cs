@@ -172,6 +172,10 @@ public static class PipeProtocol
 {
     public const int MaxRequestBytes = 64 * 1024;
 
+    // Responses grow with the blocked-IP table (~250 bytes/entry); this admits
+    // ~60k entries while bounding client memory.
+    public const int MaxResponseBytes = 16 * 1024 * 1024;
+
     public static readonly JsonSerializerOptions Json = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -195,5 +199,32 @@ public static class PipeProtocol
                (trimmed[^1] == (byte)'\n' || trimmed[^1] == (byte)'\r'))
             trimmed = trimmed[..^1];
         return JsonSerializer.Deserialize<T>(trimmed, Json);
+    }
+
+    /// <summary>
+    /// Reads one '\n'-terminated frame. Returns null on clean EOF before any
+    /// byte. Throws once the accumulated frame exceeds
+    /// <see cref="MaxResponseBytes"/> rather than returning truncated data.
+    /// </summary>
+    public static async Task<byte[]?> ReadLineAsync(Stream stream, CancellationToken ct)
+    {
+        var buf = new byte[1024];
+        using var ms = new MemoryStream(1024);
+        while (true)
+        {
+            var read = await stream.ReadAsync(buf.AsMemory(), ct).ConfigureAwait(false);
+            if (read <= 0) return ms.Length == 0 ? null : ms.ToArray();
+            for (var i = 0; i < read; i++)
+            {
+                if (buf[i] == (byte)'\n')
+                {
+                    ms.Write(buf, 0, i);
+                    return ms.ToArray();
+                }
+            }
+            ms.Write(buf, 0, read);
+            if (ms.Length > MaxResponseBytes)
+                throw new IOException($"response exceeds maximum size ({MaxResponseBytes} bytes)");
+        }
     }
 }
